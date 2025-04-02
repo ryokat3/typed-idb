@@ -1,0 +1,8 @@
+.vscode
+hehe*
+tmp*
+.*.swp
+dist
+node_modules
+package-lock.json
+src/tmp
