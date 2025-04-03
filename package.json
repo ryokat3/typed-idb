@@ -4,32 +4,33 @@
   "description": "A HTML to pack all markdown files and assets in a single HTML with viewer",
   "main": "typesafe-idb.js",
   "scripts": {
-    "build": "webpack-cli",
-    "build-prod": "webpack-cli --mode='production'",
-    "test": "webpack-cli --config='webpack.config.test.ts'",
-    "dev-server": "webpack-cli serve --config='webpack.config.dev-server.ts'",
+    "build": "webpack-cli --config-name='build'",
+    "release": "webpack-cli --config-name='release'",
+    "test": "webpack-cli --config-name='test'",
+    "dev-server": "webpack-cli serve --config-name='dev-server'",
     "clean": "shx rm -rf dist/* src/tmp tmp"
   },
   "author": "https://github.com/ryokat3",
   "license": "MIT",
   "devDependencies": {
-    "@types/chai": "^4.3.16",
+    "@types/chai": "^5.2.1",
+    "@types/mocha": "^10.0.10",
     "@types/webpack": "^5.28.5",
-    "@types/wicg-file-system-access": "^2023.10.5",
-    "chai": "^5.1.1",
-    "glob": "^11.0.0",
-    "html-webpack-plugin": "^5.6.0",
+    "@types/wicg-file-system-access": "^2023.10.6",
+    "chai": "^5.2.0",
+    "glob": "^11.0.1",
+    "html-webpack-plugin": "^5.6.3",
     "inline-source": "^8.0.3",
-    "mocha": "^10.6.0",
-    "shx": "^0.3.4",
-    "ts-loader": "^9.5.1",
+    "mocha": "^11.1.0",
+    "shx": "^0.4.0",
+    "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.5.3",
-    "webpack": "^5.93.0",
-    "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^5.0.4"
+    "typescript": "^5.8.2",
+    "webpack": "^5.98.0",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.1"
   },
   "dependencies": {
-    "fp-ts": "^2.16.8"
+    "fp-ts": "^2.16.9"
   }
 }

@@ -1,3 +1,4 @@
+// <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
 import { createIDBInitializer, IDBCreator, IDB } from "../src/typesafe-idb"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
@@ -37,7 +38,7 @@ const data1_2:IdbData["store1"] = {
 describe("typesafe-idb", ()=>{   
     
     // Skip this test case
-    xit("indexedDB lifecycle", async ()=>{        
+    it("indexedDB lifecycle", async ()=>{        
         // NOTE: open takes long time ??
         const req = indexedDB.open("test", 1)        
         await new Promise<IDBDatabase>((resolve, _reject) => {
@@ -141,4 +142,108 @@ describe("typesafe-idb", ()=>{
         )()
         chai.assert.isTrue(E.isRight(result))
     })
+})
+
+describe("IDBFactory", ()=>{
+    describe("#open()", ()=>{
+    })
+
+    describe("#deleteDatabase()", ()=>{
+    })
+
+    describe("#cmp()", ()=>{
+    })
+
+    describe("#databases()", ()=>{
+    })
+})
+
+describe("IDBOpenDBRequest", ()=>{
+    describe("!blocked", ()=>{
+    })
+    
+    describe("!upgradeneeded", ()=>{
+    })
+})
+
+describe("IDBDatabase", ()=>{
+    describe("#createObjectStore()", ()=>{
+    })
+
+    describe("#deleteObjectStore()", ()=>{
+    })
+
+    describe("#transaction()", ()=>{
+    })
+
+    describe("#close()", ()=>{
+    })
+
+    describe("!close", ()=>{
+    })
+
+    describe("!versionchange", ()=>{
+    })
+
+    describe("!abort", ()=>{
+    })
+
+    describe("!error", ()=>{
+    })
+})
+
+describe("IDBTransaction", ()=>{
+    describe("#db", ()=>{
+    })
+
+    describe("#durability", ()=>{
+    })
+
+    describe("#error", ()=>{
+    })
+
+    describe("#mode", ()=>{
+    })
+
+    describe("#objectStoreNames", ()=>{
+    })
+
+    describe("#abort()", ()=>{
+    })
+
+    describe("#objectStore()", ()=>{
+    })
+
+    describe("#commit()", ()=>{
+    })
+
+    describe("!abort", ()=>{
+    })
+
+    describe("!complete", ()=>{
+    })
+
+    describe("!error", ()=>{
+    })
+})
+
+describe("IDBRequest", ()=>{
+})
+
+describe("IDBObjectStore", ()=>{
+})
+
+describe("IDBIndex", ()=>{
+})
+
+describe("IDBCursor", ()=>{
+})
+
+describe("IDBCursorWithValue", ()=>{
+})
+
+describe("IDBKeyRange", ()=>{
+})
+
+describe("IDBVersionChangeEvent", ()=>{
 })

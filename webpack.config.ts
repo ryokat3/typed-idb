@@ -1,7 +1,11 @@
 import * as path from "path"
+import * as glob from "glob"
 import { Configuration, RuleSetRule } from "webpack"
+import { Configuration as DevServerConfiguration } from "webpack-dev-server"
+import HtmlWebpackPlugin from "html-webpack-plugin"
 
 const OUTPUT_DIR = 'dist'
+const outputDir="tmp"
 
 const commonRules:RuleSetRule[] = [
   {
@@ -29,10 +33,10 @@ const commonConfig: (mode: "development" | "production") => Configuration = (mod
   }
 }
 
-const mainConfig: (mode: "development" | "production") => Configuration = (mode: "development" | "production") => {
+const mainConfig: (name:string, mode: "development" | "production") => Configuration = (name:string, mode: "development" | "production") => {
   return {
     ...commonConfig(mode),
-    name: 'main',
+    name: name,
     entry: './src/typesafe-idb.ts',
     output: {
       filename: 'typesafe-idb.js',
@@ -44,7 +48,60 @@ const mainConfig: (mode: "development" | "production") => Configuration = (mode:
   }
 }
 
-module.exports = (_env:any, _mode:"development" | "production" | "none" | undefined) => {
-  const mode:"development" | "production" = (_mode === "production") ? "production" : "development"  
-  return [ mainConfig(mode) ]
+
+const browserTestConfig:Configuration = {
+    name: "test",
+    mode: "development",
+    devtool: "inline-source-map",
+    entry : Object.fromEntries(glob.sync(path.resolve(__dirname, 'test/**/*.ts')).filter((filePath)=>filePath !== "").map((filePath)=> [path.basename(filePath, path.extname(filePath)), filePath])),
+    module: {
+        rules: [
+            {
+                test: /\.tsx?$/,
+                use: 'ts-loader',
+                exclude: /node_modules/
+            }
+        ]
+    },
+    resolve: {
+        extensions: ['.tsx', '.ts', '.js']
+    },
+    output: {
+        path: path.resolve(__dirname, outputDir),
+        filename: "[name].js"
+    },    
+    plugins: [
+        new HtmlWebpackPlugin({
+            title: "Typesafe-idb Browser Test",
+            template: "test/template.test.html",
+            inject: false
+        })
+    ]
 }
+
+
+
+
+const getDevServerConfig:(name: string, port: number, dir: string)=>Configuration & { 'devServer': DevServerConfiguration } = (name: string, port:number, dir:string) => {
+    return {
+        name: name,
+        mode: "development",        
+        devServer: {
+            host: '0.0.0.0',
+            port: port,
+            hot: true,
+            open: true,
+            static: {
+                directory: dir,
+                watch: true
+            }
+        }
+    }
+}
+
+module.exports = [
+  mainConfig("build", "development"),
+  mainConfig("release", "production"),
+  browserTestConfig, 
+  getDevServerConfig("dev-server", 28080, 'tmp')
+]
