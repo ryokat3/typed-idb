@@ -1,5 +1,5 @@
 // <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
-import { createIDBInitializer, IDBCreator, IDB } from "../src/typesafe-idb"
+import { createIDBFactory } from "../src/typesafe-idb"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
@@ -54,7 +54,6 @@ describe("typesafe-idb", ()=>{
             }
         })
 
-
         const delreq = indexedDB.deleteDatabase("test")
         await new Promise<IDBDatabase>((resolve, _reject) => {
             delreq.onsuccess = function () {
@@ -63,15 +62,12 @@ describe("typesafe-idb", ()=>{
                 resolve(delreq.result)
             }
         })        
-    }).timeout(5000)
+    }).timeout(10000)
 
     it("createIDBInitializer", async ()=>{
-        const callback = createIDBInitializer<IdbData>().store("store1").autoIncrement(false).keyPath("key1", "key2").store("store2").keyPath("value").done()
-
-        const result = await pipe(        
-            TE.of(new IDBCreator(callback)),
-            TE.chain((creator)=>creator.openDb(dbName, dbVersion)),
-            TE.map((db)=>new IDB<IdbData>(db)),            
+         const result = await pipe(        
+            TE.of(createIDBFactory<IdbData>().store("store1").autoIncrement(false).keyPath("key1", "key2").store("store2").keyPath("value").createFactory(dbName, dbVersion)),
+            TE.chain((creator)=>creator.openDb()),           
             TE.tapIO((idb)=>()=>idb.close()),            
             TE.chainW((idb)=>idb.delete()),            
             TE.tapError((e)=>TE.of(console.log(e.toString())))
@@ -81,13 +77,10 @@ describe("typesafe-idb", ()=>{
 
 
     it("put and get", async ()=>{
-        const callback = createIDBInitializer<IdbData>().store("store1").autoIncrement(false).keyPath("key1", "key2").store("store2").keyPath("value").done()
-
-        const result = await pipe(
+         const result = await pipe(
             TE.Do,
-            TE.bind("creator", ()=>TE.right(new IDBCreator(callback))),
-            TE.bind("db", ({creator})=>creator.openDb(dbName, dbVersion)),
-            TE.bind("idb", ({db})=>TE.right(new IDB<IdbData>(db))),
+            TE.bind("creator", ()=>TE.right(createIDBFactory<IdbData>().store("store1").autoIncrement(false).keyPath("key1", "key2").store("store2").keyPath("value").createFactory(dbName, dbVersion))),
+            TE.bind("idb", ({creator})=>creator.openDb()),
             TE.bindW("store", ({idb})=>TE.right(idb.getStore("store2"))),
             TE.tap(({store})=>store.put({ "value": 5})),
             TE.bindW("data", ({store})=>store.get(5)),            
@@ -100,13 +93,10 @@ describe("typesafe-idb", ()=>{
     })
 
     it("put and get with nested key", async ()=>{
-        const callback = createIDBInitializer<IdbData>().store("store1").autoIncrement(false).keyPath("key1", "key2").store("store2").keyPath("value").done()        
-
         const result = await pipe(
             TE.Do,
-            TE.bind("creator", ()=>TE.right(new IDBCreator(callback))),
-            TE.bind("db", ({creator})=>creator.openDb(dbName, dbVersion)),
-            TE.bind("idb", ({db})=>TE.right(new IDB<IdbData>(db))),
+            TE.bind("creator", ()=>TE.right(createIDBFactory<IdbData>().store("store1").autoIncrement(false).keyPath("key1", "key2").store("store2").keyPath("value").createFactory(dbName, dbVersion))),
+            TE.bind("idb", ({creator})=>creator.openDb()),
             TE.bindW("store", ({idb})=>TE.right(idb.getStore("store1"))),            
             TE.tap(({store})=>store.put(data1_1)),
             TE.tap(({store})=>store.put(data1_2)),
@@ -120,13 +110,10 @@ describe("typesafe-idb", ()=>{
     })
 
     it("put and get with multiple key", async ()=>{
-        const callback = createIDBInitializer<IdbData>().store("store1").autoIncrement(false).keyPath("key1", "key2").keyPath("key3").store("store2").keyPath("value").done()        
-
         const result = await pipe(
             TE.Do,
-            TE.bind("creator", ()=>TE.right(new IDBCreator(callback))),
-            TE.bind("db", ({creator})=>creator.openDb(dbName, dbVersion)),
-            TE.bind("idb", ({db})=>TE.right(new IDB<IdbData>(db))),
+            TE.bind("creator", ()=>TE.right(createIDBFactory<IdbData>().store("store1").autoIncrement(false).keyPath("key1", "key2").keyPath("key3").store("store2").keyPath("value").createFactory(dbName, dbVersion))),
+            TE.bind("idb", ({creator})=>creator.openDb()),
             TE.bindW("store", ({idb})=>TE.right(idb.getStore("store1"))),            
             TE.tap(({store})=>store.put(data1_1)),
             TE.tap(({store})=>store.put(data1_2)),

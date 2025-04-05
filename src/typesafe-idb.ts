@@ -17,30 +17,44 @@ function createOnUpgradeNeeded(idbSetup:(db:IDBDatabase)=>Promise<void>) {
     )()
 }
 
-export class IDBCreator {
+class TypesafeIDBFactory<DbData> {
 
     constructor(
-        private readonly idbSetup:(db:IDBDatabase)=>Promise<void>
+        private readonly idbSetup:(db:IDBDatabase)=>Promise<void>,
+        private readonly dbName:string,
+        private readonly dbVersion?:number
     ) {}
 
-    openDb(dbName:string, dbVersion:number) {                
+    openDb() {                
         const onUpgradeNeeded = createOnUpgradeNeeded(this.idbSetup)
 
         return pipe(                
-            TE.right(indexedDB.open(dbName, dbVersion)),               
+            TE.right(typeof(this.dbVersion) !== 'undefined' ? indexedDB.open(this.dbName, this.dbVersion) : indexedDB.open(this.dbName)),               
             TE.chain((req)=>OC.taskify(req, {
                 ...OC.defaultSet,
                 onupgradeneeded: onUpgradeNeeded,                    
                 onsuccess: (ev:Event)=>E.right((ev.target as IDBOpenDBRequest).result),
                 onblocked: OC.failureCallback
-            }))            
+            })),
+            TE.map((db)=>new IDB<DbData>(db))           
         )                                  
+    }
+
+    deleteDb() {
+        return pipe(
+            TE.right(indexedDB.deleteDatabase(this.dbName)),
+            TE.chain((req)=>OC.taskify(req, {
+                ...OC.defaultSet,
+                onupgradeneeded: OC.failureCallback, // never fired for deleteDatabase but necessary for type
+                onblocked: OC.failureCallback // never fired for deleteDatabase but necessary for type
+            }))
+        )
     }
 }
 
 export class IDB<DbData> {
     constructor(
-        private readonly db: IDBDatabase        
+        private readonly db: IDBDatabase     
     ) {}
 
     getStore<StoreName extends keyof DbData & string>(storeName: StoreName) {
@@ -121,7 +135,7 @@ function createOnUpgradeNeededCallback(storeInfo: OnUpgradeNeededType) {
     }
 }
 
-export function createIDBInitializer<DbData> () {
+export function createIDBFactory<DbData> () {
     return new IDBConstructorBase<DbData, never>(Object.create(null))
 }
 
@@ -141,8 +155,8 @@ class IDBConstructorBase<DbData, StoreNameList extends keyof DbData & string> {
         }, storeName)
     }
 
-    done(): keyof DbData extends StoreNameList ? (db:IDBDatabase)=>Promise<void> : never {        
-        return createOnUpgradeNeededCallback(this.upgradeData) as any
+    createFactory(dbName:string, dbVersion?:number): keyof DbData extends StoreNameList ? TypesafeIDBFactory<DbData>: never {        
+        return new TypesafeIDBFactory(createOnUpgradeNeededCallback(this.upgradeData), dbName, dbVersion) as any
     } 
 }
 
