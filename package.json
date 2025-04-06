@@ -16,7 +16,6 @@
     "@types/chai": "^5.2.1",
     "@types/mocha": "^10.0.10",
     "@types/webpack": "^5.28.5",
-    "@types/wicg-file-system-access": "^2023.10.6",
     "chai": "^5.2.0",
     "glob": "^11.0.1",
     "html-webpack-plugin": "^5.6.3",
