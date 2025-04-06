@@ -1,8 +1,8 @@
 {
-  "name": "typesafe-idb",
+  "name": "typed-idb",
   "version": "0.0.1",
   "description": "A HTML to pack all markdown files and assets in a single HTML with viewer",
-  "main": "typesafe-idb.js",
+  "main": "typed-idb.js",
   "scripts": {
     "build": "webpack-cli --config-name='build'",
     "release": "webpack-cli --config-name='release'",

@@ -17,7 +17,7 @@ function createOnUpgradeNeeded(idbSetup:(db:IDBDatabase)=>Promise<void>) {
     )()
 }
 
-class TypesafeIDBFactory<DbData> {
+class TIDBFactory<DbData> {
 
     constructor(
         private readonly idbSetup:(db:IDBDatabase)=>Promise<void>,
@@ -36,7 +36,7 @@ class TypesafeIDBFactory<DbData> {
                 onsuccess: (ev:Event)=>E.right((ev.target as IDBOpenDBRequest).result),
                 onblocked: OC.failureCallback
             })),
-            TE.map((db)=>new IDB<DbData>(db))           
+            TE.map((db)=>new TIDB<DbData>(db))           
         )                                  
     }
 
@@ -52,13 +52,13 @@ class TypesafeIDBFactory<DbData> {
     }
 }
 
-export class IDB<DbData> {
+export class TIDB<DbData> {
     constructor(
         private readonly db: IDBDatabase     
     ) {}
 
     getStore<StoreName extends keyof DbData & string>(storeName: StoreName) {
-        return new IDBStore<DbData[StoreName]>(this.db, storeName)
+        return new TIDBStore<DbData[StoreName]>(this.db, storeName)
     }
 
     close() {
@@ -76,7 +76,7 @@ export class IDB<DbData> {
 }
 
 
-class IDBStore<StoreData> {
+class TIDBStore<StoreData> {
     constructor(
         private readonly db: IDBDatabase,
         private readonly storeName:　string
@@ -135,17 +135,17 @@ function createOnUpgradeNeededCallback(storeInfo: OnUpgradeNeededType) {
     }
 }
 
-export function createIDBFactory<DbData> () {
-    return new IDBConstructorBase<DbData, never>(Object.create(null))
+export function startTIDB<DbData> () {
+    return new TIDBSetupBase<DbData, never>(Object.create(null))
 }
 
-class IDBConstructorBase<DbData, StoreNameList extends keyof DbData & string> {
+class TIDBSetupBase<DbData, StoreNameList extends keyof DbData & string> {
     constructor(
         protected readonly upgradeData: OnUpgradeNeededType
     ) {}
 
-    store<StoreName extends Exclude<keyof DbData & string, StoreNameList>>(storeName:StoreName):IDBStoreConstructor<DbData, StoreNameList|StoreName, DbData[StoreName]> {
-        return new IDBStoreConstructor<DbData, StoreNameList | StoreName, DbData[StoreName]>({
+    store<StoreName extends Exclude<keyof DbData & string, StoreNameList>>(storeName:StoreName):TIDBStoreSetup<DbData, StoreNameList|StoreName, DbData[StoreName]> {
+        return new TIDBStoreSetup<DbData, StoreNameList | StoreName, DbData[StoreName]>({
             ...this.upgradeData,
             [storeName]: {
                 autoIncrement: false,
@@ -155,13 +155,13 @@ class IDBConstructorBase<DbData, StoreNameList extends keyof DbData & string> {
         }, storeName)
     }
 
-    createFactory(dbName:string, dbVersion?:number): keyof DbData extends StoreNameList ? TypesafeIDBFactory<DbData>: never {        
-        return new TypesafeIDBFactory(createOnUpgradeNeededCallback(this.upgradeData), dbName, dbVersion) as any
+    createFactory(dbName:string, dbVersion?:number): keyof DbData extends StoreNameList ? TIDBFactory<DbData>: never {        
+        return new TIDBFactory(createOnUpgradeNeededCallback(this.upgradeData), dbName, dbVersion) as any
     } 
 }
 
 
-class IDBStoreConstructorBase<DbData, StoreNameList extends keyof DbData & string, StoreData> extends IDBConstructorBase<DbData, StoreNameList> {   
+class TIDBStoreSetupBase<DbData, StoreNameList extends keyof DbData & string, StoreData> extends TIDBSetupBase<DbData, StoreNameList> {   
     
     constructor(
         upgradeData:OnUpgradeNeededType,
@@ -170,9 +170,9 @@ class IDBStoreConstructorBase<DbData, StoreNameList extends keyof DbData & strin
         super(upgradeData)
     }
 
-    index(indexName:string):IDBIndexConstructor<DbData,StoreNameList,StoreData> {        
+    index(indexName:string):TIDBIndexSetup<DbData,StoreNameList,StoreData> {        
         const storeOption = this.upgradeData[this.storeName]        
-        return new IDBIndexConstructor<DbData,StoreNameList,StoreData>({
+        return new TIDBIndexSetup<DbData,StoreNameList,StoreData>({
             ...this.upgradeData,
             [this.storeName]: {
                 ...storeOption,
@@ -190,7 +190,7 @@ class IDBStoreConstructorBase<DbData, StoreNameList extends keyof DbData & strin
 }
 
 
-class IDBStoreConstructor<DbData, StoreNameList extends keyof DbData & string, StoreData> extends IDBStoreConstructorBase<DbData, StoreNameList, StoreData> {
+class TIDBStoreSetup<DbData, StoreNameList extends keyof DbData & string, StoreData> extends TIDBStoreSetupBase<DbData, StoreNameList, StoreData> {
     constructor(
         upgradeData:OnUpgradeNeededType,
         storeName:(keyof DbData & string)
@@ -198,9 +198,9 @@ class IDBStoreConstructor<DbData, StoreNameList extends keyof DbData & string, S
         super(upgradeData, storeName)
     }
 
-    autoIncrement(autoIncrement:boolean): IDBStoreConstructor<DbData,StoreNameList,StoreData> {
+    autoIncrement(autoIncrement:boolean): TIDBStoreSetup<DbData,StoreNameList,StoreData> {
         const storeOption = this.upgradeData[this.storeName]
-        return new IDBStoreConstructor<DbData, StoreNameList, StoreData>({
+        return new TIDBStoreSetup<DbData, StoreNameList, StoreData>({
             ...this.upgradeData,
             [this.storeName]: {
                 ...storeOption,
@@ -209,13 +209,13 @@ class IDBStoreConstructor<DbData, StoreNameList extends keyof DbData & string, S
         }, this.storeName)
     }
 
-    keyPath<K1 extends keyof StoreData & string>(k1:StoreData[K1] extends IDBValidKey ? K1 : never): IDBStoreConstructor<DbData,StoreNameList,StoreData>
-    keyPath<K1 extends keyof StoreData & string, K2 extends keyof StoreData[K1] & string>(k1:K1, k2:StoreData[K1][K2] extends IDBValidKey ? K2 : never): IDBStoreConstructor<DbData,StoreNameList,StoreData>
-    keyPath<K1 extends keyof StoreData & string, K2 extends keyof StoreData[K1] & string, K3 extends keyof StoreData[K1][K2] & string>(k1:K1, k2:K2, k3:StoreData[K1][K2][K3] extends IDBValidKey ? K3 : never): IDBStoreConstructor<DbData,StoreNameList,StoreData>
-    keyPath(...keyPath:string[]):IDBStoreConstructor<DbData,StoreNameList,StoreData> {
+    keyPath<K1 extends keyof StoreData & string>(k1:StoreData[K1] extends IDBValidKey ? K1 : never): TIDBStoreSetup<DbData,StoreNameList,StoreData>
+    keyPath<K1 extends keyof StoreData & string, K2 extends keyof StoreData[K1] & string>(k1:K1, k2:StoreData[K1][K2] extends IDBValidKey ? K2 : never): TIDBStoreSetup<DbData,StoreNameList,StoreData>
+    keyPath<K1 extends keyof StoreData & string, K2 extends keyof StoreData[K1] & string, K3 extends keyof StoreData[K1][K2] & string>(k1:K1, k2:K2, k3:StoreData[K1][K2][K3] extends IDBValidKey ? K3 : never): TIDBStoreSetup<DbData,StoreNameList,StoreData>
+    keyPath(...keyPath:string[]):TIDBStoreSetup<DbData,StoreNameList,StoreData> {
         const storeOption = this.upgradeData[this.storeName]
         const currentKeyPath = this.upgradeData[this.storeName]['keyPath']
-        return new IDBStoreConstructor<DbData, StoreNameList, StoreData>({
+        return new TIDBStoreSetup<DbData, StoreNameList, StoreData>({
             ...this.upgradeData,
             [this.storeName]: {
                 ...storeOption,
@@ -229,7 +229,7 @@ class IDBStoreConstructor<DbData, StoreNameList extends keyof DbData & string, S
 
 }
 
-class IDBIndexConstructor<DbData, StoreNameList extends keyof DbData & string, StoreData> extends IDBStoreConstructorBase<DbData, StoreNameList, StoreData> {
+class TIDBIndexSetup<DbData, StoreNameList extends keyof DbData & string, StoreData> extends TIDBStoreSetupBase<DbData, StoreNameList, StoreData> {
     constructor(
         upgradeData:OnUpgradeNeededType,
         storeName:(keyof DbData & string),
@@ -238,13 +238,13 @@ class IDBIndexConstructor<DbData, StoreNameList extends keyof DbData & string, S
         super(upgradeData, storeName)
     }
 
-    keyPath<K1 extends keyof StoreData & string>(k1:K1): IDBIndexConstructor<DbData, StoreNameList, StoreData>
-    keyPath<K1 extends keyof StoreData & string, K2 extends keyof StoreData[K1] & string>(k1:K1, k2:K2): IDBIndexConstructor<DbData, StoreNameList, StoreData>
-    keyPath<K1 extends keyof StoreData & string, K2 extends keyof StoreData[K1] & string, K3 extends keyof StoreData[K1][K2] & string>(k1:K1, k2:K2, k3:K3): IDBIndexConstructor<DbData, StoreNameList, StoreData>
-    keyPath(...keyPath:string[]):IDBIndexConstructor<DbData, StoreNameList, StoreData> {
+    keyPath<K1 extends keyof StoreData & string>(k1:K1): TIDBIndexSetup<DbData, StoreNameList, StoreData>
+    keyPath<K1 extends keyof StoreData & string, K2 extends keyof StoreData[K1] & string>(k1:K1, k2:K2): TIDBIndexSetup<DbData, StoreNameList, StoreData>
+    keyPath<K1 extends keyof StoreData & string, K2 extends keyof StoreData[K1] & string, K3 extends keyof StoreData[K1][K2] & string>(k1:K1, k2:K2, k3:K3): TIDBIndexSetup<DbData, StoreNameList, StoreData>
+    keyPath(...keyPath:string[]):TIDBIndexSetup<DbData, StoreNameList, StoreData> {
         const storeOption = this.upgradeData[this.storeName]
         const indexOption = this.upgradeData[this.storeName]['index'][this.indexName]
-        return new IDBIndexConstructor<DbData, StoreNameList, StoreData>({
+        return new TIDBIndexSetup<DbData, StoreNameList, StoreData>({
             ...this.upgradeData,
             [this.storeName]: {
                 ...storeOption,
@@ -259,10 +259,10 @@ class IDBIndexConstructor<DbData, StoreNameList extends keyof DbData & string, S
         }, this.storeName, this.indexName)
     }
 
-    unique(unique:boolean): IDBIndexConstructor<DbData, StoreNameList, StoreData> {
+    unique(unique:boolean): TIDBIndexSetup<DbData, StoreNameList, StoreData> {
         const storeOption = this.upgradeData[this.storeName]
         const indexOption = this.upgradeData[this.storeName]['index'][this.indexName]
-        return new IDBIndexConstructor<DbData, StoreNameList, StoreData>({
+        return new TIDBIndexSetup<DbData, StoreNameList, StoreData>({
             ...this.upgradeData,
             [this.storeName]: {
                 ...storeOption,
@@ -277,10 +277,10 @@ class IDBIndexConstructor<DbData, StoreNameList extends keyof DbData & string, S
         }, this.storeName, this.indexName)    
     }
 
-    multiEntry(multiEntry:boolean): IDBIndexConstructor<DbData, StoreNameList, StoreData> {
+    multiEntry(multiEntry:boolean): TIDBIndexSetup<DbData, StoreNameList, StoreData> {
         const storeOption = this.upgradeData[this.storeName]
         const indexOption = this.upgradeData[this.storeName]['index'][this.indexName]
-        return new IDBIndexConstructor<DbData, StoreNameList, StoreData>({
+        return new TIDBIndexSetup<DbData, StoreNameList, StoreData>({
             ...this.upgradeData,
             [this.storeName]: {
                 ...storeOption,

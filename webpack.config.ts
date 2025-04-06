@@ -37,11 +37,11 @@ const mainConfig: (name:string, mode: "development" | "production") => Configura
   return {
     ...commonConfig(mode),
     name: name,
-    entry: './src/typesafe-idb.ts',
+    entry: './src/typed-idb.ts',
     output: {
-      filename: 'typesafe-idb.js',
+      filename: 'typed-idb.js',
       path: path.join(__dirname, OUTPUT_DIR),
-      library: 'typesafe-idb',
+      library: 'typed-idb',
       libraryTarget: 'umd',
       publicPath: ''
     }
@@ -72,7 +72,7 @@ const browserTestConfig:Configuration = {
     },    
     plugins: [
         new HtmlWebpackPlugin({
-            title: "Typesafe-idb Browser Test",
+            title: "Typed-idb Browser Test",
             template: "test/template.test.html",
             inject: false
         })
