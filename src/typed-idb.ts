@@ -20,7 +20,7 @@ type IndexDataType<T> = T extends Record<string,unknown> ? {
 } : null
 
 type StoreDataType<T> = T extends Record<string, unknown> ? {
-    keyPath: keyof KeyPathType<T>,
+    keyPath: keyof KeyPathType<T> | undefined,
     Indexes: Array<IndexDataType<T>>
 } : null
 
@@ -160,7 +160,7 @@ class TypedIDBIndex {
 type OnUpgradeNeededType = {
     [storeName: string]: {
         autoIncrement: boolean,
-        keyPath: string|string[],
+        keyPath: string | undefined,
         index: {
             [indexName: string]: {
                 keyPath: string[],
@@ -174,7 +174,7 @@ type OnUpgradeNeededType = {
 function createOnUpgradeNeededCallback(storeInfo: OnUpgradeNeededType) {        
     return async (db: IDBDatabase):Promise<void> => {            
         for (const [storeName, storeOption] of Object.entries(storeInfo)) {
-            const storeParam: IDBObjectStoreParameters = (storeOption.keyPath.length > 0) ? {
+            const storeParam: IDBObjectStoreParameters = (storeOption.keyPath !== undefined) ? {
                 keyPath: storeOption.keyPath,
                 autoIncrement: storeOption.autoIncrement
             } : {
@@ -205,7 +205,7 @@ class TypedIDBSetupBase<DbData extends Record<string,unknown>, StoreNameList ext
             ...this.upgradeData,
             [storeName]: {
                 autoIncrement: false,
-                keyPath: [],
+                keyPath: undefined,
                 index: {}
             }
         }, storeName)

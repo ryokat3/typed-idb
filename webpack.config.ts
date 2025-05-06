@@ -4,8 +4,8 @@ import { Configuration, RuleSetRule } from "webpack"
 import { Configuration as DevServerConfiguration } from "webpack-dev-server"
 import HtmlWebpackPlugin from "html-webpack-plugin"
 
-const OUTPUT_DIR = 'dist'
-const outputDir="tmp"
+const DIST_DIR = 'dist'
+const TMP_DIR="tmp"
 
 const commonRules:RuleSetRule[] = [
   {
@@ -40,7 +40,7 @@ const mainConfig: (name:string, mode: "development" | "production") => Configura
     entry: './src/typed-idb.ts',
     output: {
       filename: 'typed-idb.js',
-      path: path.join(__dirname, OUTPUT_DIR),
+      path: path.join(__dirname, DIST_DIR),
       library: 'typed-idb',
       libraryTarget: 'umd',
       publicPath: ''
@@ -67,7 +67,7 @@ const browserTestConfig:Configuration = {
         extensions: ['.tsx', '.ts', '.js']
     },
     output: {
-        path: path.resolve(__dirname, outputDir),
+        path: path.resolve(__dirname, TMP_DIR),
         filename: "[name].js"
     },    
     plugins: [
