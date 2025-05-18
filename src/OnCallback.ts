@@ -1,6 +1,7 @@
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
 import { identity } from "fp-ts/lib/function"
+import { AppError } from "./AppError"
 
 
 export const successCallback:unique symbol = Symbol('onCallbackSuccess')
@@ -33,7 +34,7 @@ type ValueType<T> = T[keyof T]
 
 type OnCallbackFilter<T> = T extends (e:infer Ev)=>any ? ((x:Ev)=>unknown) : never
 
-type OnCallbackSetType<T> = { readonly [ Key in { [K in keyof T]: K extends `on${infer _Name}` ? NonNullable<T[K]> extends (x:any)=>any ? K : never : never }[keyof T] ]: (OnCallbackFilter<NonNullable<T[Key]>> | OnCallbackSuccess | OnCallbackFailure | OnCallbackNoCallback ) }
+export type OnCallbackSetType<T> = { readonly [ Key in { [K in keyof T]: K extends `on${infer _Name}` ? NonNullable<T[K]> extends (x:any)=>any ? K : never : never }[keyof T] ]: (OnCallbackFilter<NonNullable<T[Key]>> | OnCallbackSuccess | OnCallbackFailure | OnCallbackNoCallback ) }
 
 type OnCallbackReturnType<T, U, K> = GetValue<U,K> extends OnCallbackSuccess ? NonNullable<GetValue<T,K>> extends (ev:infer SEV)=>any ? E.Right<SEV> : never : 
                                         GetValue<U,K> extends OnCallbackFailure ? NonNullable<GetValue<T,K>> extends (ev:infer FEV)=>any ? E.Left<FEV> : never :                                         
@@ -41,17 +42,26 @@ type OnCallbackReturnType<T, U, K> = GetValue<U,K> extends OnCallbackSuccess ? N
                                        
 type OnCallbackSetReturnType<T, U> = { [ Key in { [K in keyof U]: K extends keyof OnCallbackSetType<T> ? K : never }[keyof U] ]: OnCallbackReturnType<T, U, Key> }
 
-
 export function taskify<T, U extends OnCallbackSetType<T>,
     R = ValueType<OnCallbackSetReturnType<T, U>> extends E.Either<unknown, infer R> ? R : never,
     L = ValueType<OnCallbackSetReturnType<T, U>> extends E.Either<infer L, unknown> ? L : never>
     (obj: T, onCallbackSet: U): TE.TaskEither<[L, string], R> {    
+            
+    if (window.DEBUG) {
+        const uncovered = getUncoveredEvents(obj, onCallbackSet)
+        if (uncovered.length > 0) {
+            throw AppError.create("allEventNotCovered", uncovered)
+        }
+    }
+
     return TE.tryCatch<[L, string], R>(() => {
         return new Promise((resolve, reject) => {
             for (const [name, onCallback] of Object.entries(onCallbackSet)) {
                 if (obj[name as keyof T] !== undefined) {
                     if (onCallback instanceof Function) {
                         obj[name as keyof T] = ((e: any) => {
+                            window.DEBUG && console.log(`Event: ${name}`)
+
                             Promise.resolve(onCallback(e)).then((result) => {
                                 //if (isSuccess(result)) {
                                 if (E.isRight<R>(result)) {
@@ -64,13 +74,35 @@ export function taskify<T, U extends OnCallbackSetType<T>,
                         }) as any
                     }
                     else if (onCallback === successCallback) {
-                        obj[name as keyof T] = ((e: any) => resolve(e)) as any
+                        obj[name as keyof T] = ((e: any) => {
+                            window.DEBUG && console.log(`Event: ${name}`)
+
+                            resolve(e) as any
+                        }) as any
                     }
                     else if (onCallback === failureCallback) {
-                        obj[name as keyof T] = ((e: any) => reject([e, name])) as any
+                        obj[name as keyof T] = ((e: any) => {
+                            window.DEBUG && console.log(`Event: ${name}`)    
+                            
+                            reject([e, name])
+                        }) as any
+
                     }
                 }
             }
         })
     }, identity as (x: unknown) => [L, string])
 }
+
+function* genKey(target:any) {
+    for (const key in target) {
+        yield key
+    }
+}
+
+function getUncoveredEvents<T, U extends OnCallbackSetType<T>>(
+    target: T,
+    onCallbackSet: U
+):string[] {    
+    return Array.from(genKey(target)).reduce<string[]>((prev, curr)=> ((/^on/.test(curr)) && !(curr in onCallbackSet)) ? [ ...prev, curr ] : prev, [])    
+}    

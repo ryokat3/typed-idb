@@ -1,31 +1,266 @@
 import * as E from "fp-ts/Either"
+import * as T from "fp-ts/Task"
 import * as TE from "fp-ts/TaskEither"
-import { pipe } from "fp-ts/function"
+import { pipe, identity } from "fp-ts/function"
 import * as OC from "./OnCallback"
 import { KeyPath, Cast } from "boost-ts.types"
 
 ////////////////////////////////////////////////////////////////
-// Database Types
+// Database Scheme Types
 ////////////////////////////////////////////////////////////////
 
-type KeyPathType<T> = T extends Record<string,unknown> ? KeyPath<T, ".", false> : never
+type KeyPathType<T> = KeyPath<T, ".", false, IDBValidKey>
+type StrKey<T> = Extract<keyof T, string>
 
-type IndexDataType<T> = T extends Record<string,unknown> ? {
-    keyPath: keyof KeyPathType<T>,
+export type UserDataType = {
+    [storeName:string]:unknown
+}
+
+
+type IndexScheme<StoreData, UserKeyPath=KeyPathType<StoreData>> = {
+    keyPath: StrKey<UserKeyPath>,
     options: {
         unique: boolean
         multiEntry: boolean
         locale: string|"auto"|null|undefined
     }
-} : null
+}
 
-type StoreDataType<T> = T extends Record<string, unknown> ? {
-    keyPath: keyof KeyPathType<T> | undefined,
-    Indexes: Array<IndexDataType<T>>
-} : null
+type StoreObjectScheme<StoreData, UserKeyPath = KeyPathType<StoreData>> = [ UserKeyPath ] extends [ Record<string,unknown> ] ? {
+    keyPath: StrKey<UserKeyPath> | undefined,
+    autoIncrement: boolean,
+    indexes: {
+        [indexName:string]: IndexScheme<UserKeyPath>
+    }           
+} : {
+    keyPath: undefined,    
+    autoIncrement: boolean,
+    indexes: {}
+}
 
-export type DatabaseDataType<T extends Record<string,unknown>> = {
-    [K in keyof T]: StoreDataType<T[K]>
+export type DatabaseScheme<T extends UserDataType> = {
+    [storeName in StrKey<T>]: StoreObjectScheme<T[storeName]>
+}
+
+////////////////////////////////////////////////////////////////
+// Upgrade Database Scheme
+////////////////////////////////////////////////////////////////
+
+function isSameIndex<UserKeyPath extends Record<string,IDBValidKey>>(index:IDBIndex, config:IndexScheme<UserKeyPath>): boolean {
+    // NOTE: Ignore "locale" and "isAutoLocale" properties because they may not be implemented
+    return (index.keyPath === config.keyPath) && (index.unique === config.options.unique) && (index.multiEntry === config.options.multiEntry)
+}
+
+function upgradeIndexScheme<UserKeyPath extends Record<string,IDBValidKey>>(store:IDBObjectStore, name:string, config:IndexScheme<UserKeyPath>): IDBIndex {
+    try {
+        const index = store.index(name)    
+        if (isSameIndex<UserKeyPath>(index, config)) {
+            return index
+        }
+        else {
+            store.deleteIndex(name)
+        }
+    }  
+    catch (e) {
+        if (!((e instanceof DOMException) && (e.name === "NotFoundError"))) {
+            throw e    
+        }
+    }
+    return store.createIndex(name, config.keyPath as string, config.options)
+}
+
+function upgradeStoreScheme<T extends UserDataType, StoreName extends StrKey<T>>(db:IDBDatabase, name: StoreName, scheme:StoreObjectScheme<T[StoreName]>): IDBObjectStore {
+
+    try {
+        const store = db.transaction(name, "readonly").objectStore(name)        
+        if ((store.keyPath === scheme.keyPath) || (store.autoIncrement === scheme.autoIncrement)) {
+            return store
+        }
+        else {            
+            db.deleteObjectStore(name)
+        }
+    }
+    catch (e) {        
+        // NotFoundError fired if ObjectStore not exist
+        if (!((e instanceof DOMException) && (e.name !== "NotFoundError"))) {
+            window.DEBUG && console.log(`DOMException when upgrading: ${e}`)
+            throw e    
+        }
+    }    
+    return db.createObjectStore(name, scheme)
+}
+
+
+function entries<T extends Record<string,any>>(obj: T):[StrKey<T>, T[keyof T]][] {
+    return Object.entries(obj) as [StrKey<T>, T[keyof T]][]
+}
+
+
+function upgradeDatabaseScheme<T extends UserDataType>(dbScheme:DatabaseScheme<T>) {
+
+    return async (db: IDBDatabase):Promise<void> => {            
+        for (const [storeName, storeScheme] of entries(dbScheme)) {
+            
+            const store = upgradeStoreScheme<T, typeof storeName>(db, storeName, storeScheme)
+                        
+            for (const [indexName, indexScheme] of entries(storeScheme.indexes)) {            
+                upgradeIndexScheme(store, indexName, indexScheme)
+            }            
+        }
+    }
+}
+
+function onUpgradeNeededCB<T extends UserDataType>(dbConfig:DatabaseScheme<T>) {
+
+    return async (event:IDBVersionChangeEvent) => await pipe(                    
+        TE.Do,            
+        TE.bind("req", ()=>TE.fromNullable("IDBOpenDBRequest is null")(event.target as IDBOpenDBRequest | null)),                        
+        TE.bind("db", (e)=>TE.of(e.req.result)), 
+        TE.tapTask(({db})=>()=>upgradeDatabaseScheme<T>(dbConfig)(db)),
+        TE.map(({db})=>db)
+    )()
+}
+
+////////////////////////////////////////////////////////////////
+// IDBFactory Typed Thin Wrapper
+////////////////////////////////////////////////////////////////
+
+export class FpIDBFactory<T extends UserDataType> {
+
+    private readonly factory:IDBFactory = indexedDB
+
+    constructor(private readonly scheme:DatabaseScheme<T>) {}
+          
+    open(name:string, version:number|undefined = undefined) {
+        return pipe(
+            TE.fromNullable("IDBFactory.open() returns null")(indexedDB.open(name, version)),
+            TE.chainW((req)=>OC.taskify(req, {
+                ...OC.defaultSet,                
+                onupgradeneeded: onUpgradeNeededCB(this.scheme),
+                onsuccess: (_e)=>req.result,           
+                onblocked: OC.failureCallback
+            })),
+            TE.map((db)=>new FpIDBDatabase<T, typeof this.scheme>(db, this.scheme))
+        )      
+    }
+
+    deleteDatabase(name:string) {
+        return pipe(
+            TE.right(this.factory.deleteDatabase(name)),            
+            TE.chainW((req)=>OC.taskify(req, {
+                ...OC.defaultSet,
+                onupgradeneeded: OC.successCallback,
+                onversionchange: OC.successCallback,
+                onblocked: OC.successCallback
+            })),
+            TE.tapError((e)=>TE.of(console.log(e.toString())))
+        )
+    }
+    
+    cmp(first:any, second:any) {
+        return this.factory.cmp(first, second)    
+    }
+    
+    databases() {
+        return TE.tryCatch(()=>this.factory.databases(), identity)
+    }    
+}
+
+export function getIDBRequestTask<T extends UserDataType, Scheme extends DatabaseScheme<T>, ResultType>(
+    request:IDBRequest,
+    scheme:Scheme,
+    resultWrapper:(result:any, scheme:Scheme)=>ResultType 
+) {
+
+    class FpIDBRequest<Scheme, ResultType>  {
+
+        constructor(
+            private readonly request:IDBRequest,
+            private readonly scheme:Scheme,
+            private readonly resultWrapper:(result:any, scheme:Scheme)=>ResultType        
+            ) {}
+    
+        get result() {        
+            return this.resultWrapper(this.request.result, this.scheme)
+        }        
+    }
+
+    return pipe(                
+        TE.fromEither(E.fromNullable("Not error")(request.transaction)),
+        TE.chainW((txn)=>OC.taskify(txn, OC.defaultSet)),        
+        TE.getOrElseW((_)=>async()=>null),                
+        T.map((_)=>new FpIDBRequest(request, scheme, resultWrapper))        
+    )
+}   
+
+
+class FpIDBDatabase<T extends UserDataType, Scheme extends DatabaseScheme<T>> {
+
+    constructor(
+        private readonly db:IDBDatabase,
+        private readonly scheme:Scheme
+    ){ }
+
+    transaction(
+        storeNames: StrKey<T> | StrKey<T>[],
+        mode: "readonly"|"readwrite"|undefined = undefined,
+        options: {
+            durability: "default"|"strict"|"relaxed"
+        }
+    ) {        
+        return pipe(
+            E.tryCatch(()=>this.db.transaction(storeNames, mode, options), identity),
+            TE.fromEither,            
+            TE.map((trx)=>new FpIDBTransaction<T,typeof this.scheme>(trx, this.scheme))
+        )
+    }
+
+    close():void {        
+        this.db.close()
+    }    
+}
+
+class FpIDBTransaction<T extends UserDataType, Scheme extends DatabaseScheme<T>> {
+
+    public readonly done:TE.TaskEither<[string, string], Event>
+
+    constructor(
+        private readonly trx:IDBTransaction,
+        private readonly scheme:Scheme
+    ) {
+        this.done = OC.taskify(this.trx, OC.defaultSet)
+    }
+
+    objectStore<StoreName extends StrKey<T>>(name:StoreName) {
+        return pipe(
+            E.tryCatch<DOMException, IDBObjectStore>(()=>this.trx.objectStore(name), identity as any),            
+            E.map((store)=>new FpIDBObjectStore<T, Scheme, StoreName>(store, this.scheme[name]))
+        )
+    }  
+}    
+
+class FpIDBObjectStore<T extends UserDataType, Scheme extends DatabaseScheme<T>, StoreName extends StrKey<T>> {
+
+    constructor(
+        private readonly store:IDBObjectStore,
+        private readonly scheme:Scheme[StoreName]       
+    ) {}
+    
+    add(value:T[StoreName]): IDBRequest
+    add(value:T[StoreName], key:(typeof this.scheme extends { keyPath:undefined } ? IDBValidKey : typeof this.scheme extends { keyPath:any } ? never : IDBValidKey) | never): IDBRequest
+    add(value:T[StoreName], key:any=undefined): any {
+        if (key === undefined) {
+            this.store.add(value)
+        }
+        else {
+            this.store.add(value, key)
+        }
+    }
+/*
+    hehe(pp:keyof KeyPathType<T[StoreName]>, value:KeyPathType<T[StoreName]>[typeof pp]):void {
+
+    }
+*/    
 }
 
 ////////////////////////////////////////////////////////////////
@@ -297,6 +532,7 @@ class TypedIDBIndexSetup<DbData extends Record<string,unknown>, StoreNameList ex
                     ...storeOption['index'],
                     [this.indexName]: {
                         ...indexOption,
+                        // @ts-ignore
                         keyPath: keyPath as string[]
                     }
                 }

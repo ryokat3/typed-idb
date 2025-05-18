@@ -1,5 +1,6 @@
 // <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
 import { startTypedIDB } from "../src/typed-idb"
+import { FpIDBFactory, DatabaseScheme } from "../src/typed-idb"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
@@ -30,7 +31,73 @@ const data1_2:IdbData["store1"] = {
     },
     "key3": 5
 }
-  
+
+
+const IdbScheme:DatabaseScheme<IdbData> = {
+    "store1": {
+        keyPath: "key1.key2",
+        autoIncrement: false,
+        indexes: {
+            "iname1": {
+                keyPath: "key3",
+                options: {
+                    unique: false,
+                    multiEntry: false,
+                    locale: null
+                }
+            }
+        }
+    },
+    "store2": {
+        keyPath: "value",
+        autoIncrement: true,
+        indexes: {}
+    }
+}
+export const sleepTask = (ms:number) => ()=>new Promise((res)=>setTimeout(res, ms))
+
+describe("IndexedDB TaskEither", function () {
+
+    describe("FpIDBFactory", function () {
+
+        it("open/delete", async function () {                    
+            const title = this.test?.titlePath()?.join("::")
+            console.log(title)
+            const dbName: string = title || window.crypto.randomUUID()
+
+            const result = await pipe(
+                TE.Do,
+                TE.bind("factory", () => TE.right(new FpIDBFactory<IdbData>(IdbScheme))),    
+                TE.bind("db", ({factory}) => factory.open(dbName)),                
+                TE.tap(({factory}) => factory.deleteDatabase(dbName))
+            )()
+
+            chai.assert.isTrue(E.isRight(result))
+        })
+    })
+
+    describe("FpIDBDatabase", function () {    
+
+        it("database", async function () {
+            const title = this.test?.titlePath()?.join("::")
+            console.log(title)
+            const dbName: string = title || window.crypto.randomUUID()            
+
+            const result = await pipe(
+                TE.Do,                
+                TE.apS("factory", TE.of(new FpIDBFactory<IdbData>(IdbScheme))),                
+                TE.bind("db", ({factory}) => factory.open(dbName)),                          
+                TE.bind("databases", ({factory}) => factory.databases()),                               
+                TE.tapIO(({databases}) => () => chai.expect(databases.length).to.be.above(0)),
+                TE.tapIO(({databases}) => () => chai.assert.isTrue(databases.map((x)=>x.name).includes(dbName))),                
+                TE.tapIO(({db}) => () => db.close()),                
+                TE.tap(({factory}) => factory.deleteDatabase(dbName))
+            )()
+
+            chai.assert.isTrue(E.isRight(result))
+        })
+    })
+})
 
 describe("typed-idb", ()=>{   
 
