@@ -86,7 +86,9 @@ describe("IndexedDB TaskEither", function () {
             const result = await pipe(
                 TE.Do,                
                 TE.apS("factory", TE.of(new FpIDBFactory<IdbData>(IdbScheme))),                
-                TE.bind("db", ({factory}) => factory.open(dbName)),                          
+                // TE.bind("db", ({factory}) => factory.open(dbName)),                          
+/* New */       TE.bind("req", ({factory}) => factory.open(dbName)),
+/* New */       TE.bindW("db", ({req}) => TE.of(req.result)),
                 TE.bind("databases", ({factory}) => factory.databases()),                               
                 TE.tapIO(({databases}) => () => chai.expect(databases.length).to.be.above(0)),
                 TE.tapIO(({databases}) => () => chai.assert.isTrue(databases.map((x)=>x.name).includes(dbName))),                

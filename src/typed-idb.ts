@@ -142,7 +142,8 @@ export class FpIDBFactory<T extends UserDataType> {
                 onsuccess: (_e)=>req,           
                 onblocked: OC.failureCallback
             })),
-            TE.map((db)=>new FpIDBDatabase<T, typeof this.scheme>(db.result, this.scheme))
+            // TE.map((db)=>new FpIDBDatabase<T, typeof this.scheme>(db.result, this.scheme))
+            TE.chainTaskK((newReq)=>getIDBRequestTask<T, typeof this.scheme, FpIDBDatabase<T, typeof this.scheme>>(newReq, this.scheme, (db)=>new FpIDBDatabase<T, typeof this.scheme>(db, this.scheme)))
         )      
     }
 
