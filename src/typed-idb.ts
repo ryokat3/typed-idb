@@ -117,7 +117,8 @@ function onUpgradeNeededCB<T extends UserDataType>(dbConfig:DatabaseScheme<T>) {
         TE.bind("req", ()=>TE.fromNullable("IDBOpenDBRequest is null")(event.target as IDBOpenDBRequest | null)),        
         TE.bind("db", ({req})=>TE.of(req.result)), 
         TE.tapTask(({db})=>()=>upgradeDatabaseScheme<T>(dbConfig)(db)),
-        TE.map(({db})=>db)
+        // TE.map(({db})=>db)
+        TE.map(({req})=>req)
     )()
 }
 
@@ -137,10 +138,11 @@ export class FpIDBFactory<T extends UserDataType> {
             TE.chainW((req)=>OC.taskify(req, {
                 ...OC.defaultSet,                
                 onupgradeneeded: onUpgradeNeededCB(this.scheme),
-                onsuccess: (_e)=>req.result,           
+                // onsuccess: (_e)=>req.result,           
+                onsuccess: (_e)=>req,           
                 onblocked: OC.failureCallback
             })),
-            TE.map((db)=>new FpIDBDatabase<T, typeof this.scheme>(db, this.scheme))
+            TE.map((db)=>new FpIDBDatabase<T, typeof this.scheme>(db.result, this.scheme))
         )      
     }
 
