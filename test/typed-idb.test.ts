@@ -90,8 +90,12 @@ describe("IndexedDB TaskEither", function () {
                 TE.bind("databases", ({factory}) => factory.databases()),                               
                 TE.tapIO(({databases}) => () => chai.expect(databases.length).to.be.above(0)),
                 TE.tapIO(({databases}) => () => chai.assert.isTrue(databases.map((x)=>x.name).includes(dbName))),                
-                TE.tapIO(({db}) => () => db.close()),                
-                TE.tap(({factory}) => factory.deleteDatabase(dbName))
+                TE.tapIO(({db}) => () => db.close()),             
+                TE.tapIO(() => () => console.log("Delete DB")),  
+                TE.tap(({factory}) => factory.deleteDatabase(dbName)),
+                TE.tapIO(() => () => console.log("Delete DB done")),                
+                TE.bind("databases2", ({factory}) => factory.databases()),                               
+                TE.tapIO(({databases2}) => () => chai.assert.isFalse(databases2.map((x)=>x.name).includes(dbName)))                
             )()
 
             chai.assert.isTrue(E.isRight(result))
