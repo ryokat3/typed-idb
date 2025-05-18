@@ -114,8 +114,8 @@ function onUpgradeNeededCB<T extends UserDataType>(dbConfig:DatabaseScheme<T>) {
 
     return async (event:IDBVersionChangeEvent) => await pipe(                    
         TE.Do,            
-        TE.bind("req", ()=>TE.fromNullable("IDBOpenDBRequest is null")(event.target as IDBOpenDBRequest | null)),                        
-        TE.bind("db", (e)=>TE.of(e.req.result)), 
+        TE.bind("req", ()=>TE.fromNullable("IDBOpenDBRequest is null")(event.target as IDBOpenDBRequest | null)),        
+        TE.bind("db", ({req})=>TE.of(req.result)), 
         TE.tapTask(({db})=>()=>upgradeDatabaseScheme<T>(dbConfig)(db)),
         TE.map(({db})=>db)
     )()
