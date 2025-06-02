@@ -105,4 +105,4 @@ function getUncoveredEvents<T, U extends OnCallbackSetType<T>>(
     onCallbackSet: U
 ):string[] {    
     return Array.from(genKey(target)).reduce<string[]>((prev, curr)=> ((/^on/.test(curr)) && !(curr in onCallbackSet)) ? [ ...prev, curr ] : prev, [])    
-}    
+}

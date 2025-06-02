@@ -1,6 +1,5 @@
 // <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
-import { startTypedIDB } from "../src/typed-idb"
-import { FpIDBFactory, DatabaseScheme } from "../src/typed-idb"
+import { TypedIDBBuilder } from "../src/typed-idb"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
@@ -32,79 +31,137 @@ const data1_2:IdbData["store1"] = {
     "key3": 5
 }
 
-
-const IdbScheme:DatabaseScheme<IdbData> = {
-    "store1": {
-        keyPath: "key1.key2",
-        autoIncrement: false,
-        indexes: {
-            "iname1": {
-                keyPath: "key3",
-                options: {
-                    unique: false,
-                    multiEntry: false,
-                    locale: null
-                }
-            }
-        }
-    },
-    "store2": {
-        keyPath: "value",
-        autoIncrement: true,
-        indexes: {}
-    }
-}
 export const sleepTask = (ms:number) => ()=>new Promise((res)=>setTimeout(res, ms))
 
-describe("IndexedDB TaskEither", function () {
+describe("TypedIDBBuilder", function(){
 
-    describe("FpIDBFactory", function () {
+    it("store name check", function() {
+        // No ERROR
+        TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2")
 
-        it("open/delete", async function () {                    
-            const title = this.test?.titlePath()?.join("::")
-            console.log(title)
-            const dbName: string = title || window.crypto.randomUUID()
-
-            const result = await pipe(
-                TE.Do,
-                TE.bind("factory", () => TE.right(new FpIDBFactory<IdbData>(IdbScheme))),    
-                TE.bind("db", ({factory}) => factory.open(dbName)),                
-                TE.tap(({factory}) => factory.deleteDatabase(dbName))
-            )()
-
-            chai.assert.isTrue(E.isRight(result))
-        })
+        // @ts-expect-error
+        // storeName must be a key of IdbDatra
+        TypedIDBBuilder<IdbData>().objectStore("store1_error", "key1.key2")        
     })
 
-    describe("FpIDBDatabase", function () {    
+    it("key path check", function() {
+        // No ERROR
+        TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2")
 
-        it("database", async function () {
-            const title = this.test?.titlePath()?.join("::")
-            console.log(title)
-            const dbName: string = title || window.crypto.randomUUID()            
+        // @ts-expect-error
+        // The value type of keyPath must be IDBValidType
+        TypedIDBBuilder<IdbData>().objectStore("store1", "key1")
 
-            const result = await pipe(
-                TE.Do,                
-                TE.apS("factory", TE.of(new FpIDBFactory<IdbData>(IdbScheme))),                
-                // TE.bind("db", ({factory}) => factory.open(dbName)),                          
-/* New */       TE.bind("req", ({factory}) => factory.open(dbName)),
-/* New */       TE.bindW("db", ({req}) => TE.of(req.result)),
-                TE.bind("databases", ({factory}) => factory.databases()),                               
-                TE.tapIO(({databases}) => () => chai.expect(databases.length).to.be.above(0)),
-                TE.tapIO(({databases}) => () => chai.assert.isTrue(databases.map((x)=>x.name).includes(dbName))),                
-                TE.tapIO(({db}) => () => db.close()),             
-                TE.tapIO(() => () => console.log("Delete DB")),  
-                TE.tap(({factory}) => factory.deleteDatabase(dbName)),
-                TE.tapIO(() => () => console.log("Delete DB done")),                
-                TE.bind("databases2", ({factory}) => factory.databases()),                               
-                TE.tapIO(({databases2}) => () => chai.assert.isFalse(databases2.map((x)=>x.name).includes(dbName)))                
-            )()
+        // @ts-expect-error         
+        // keyPath must conform to IdbDatra
+        TypedIDBBuilder<IdbData>().objectStore("store1", "key2")                    
+    })
 
-            chai.assert.isTrue(E.isRight(result))
-        })
+    it("factory", function() {        
+        chai.assert.isObject(TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").factory())
+    })    
+})
+
+describe("TypedIDBFactory", function () {
+
+    it("open/delete", async function () {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const result = await pipe(
+            TE.Do,
+            TE.bind("factory", () => TE.right(TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").factory())),
+            TE.bind("db", ({ factory }) => factory.open(dbName)),
+            TE.tap(({ factory }) => factory.deleteDatabase(dbName))
+        )()
+
+        chai.assert.isTrue(E.isRight(result))
     })
 })
 
+describe("TypedIDBDatabase", function () {
+
+    it("database", async function () {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const result = await pipe(
+            TE.Do,
+            TE.apS("factory", TE.of(TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").factory())),
+            TE.bind("req", ({ factory }) => factory.open(dbName)),
+            TE.bindW("db", ({ req }) => TE.of(req.result)),
+            TE.bind("databases", ({ factory }) => factory.databases()),
+            TE.tapIO(({ databases }) => () => chai.expect(databases.length).to.be.above(0)),
+            TE.tapIO(({ databases }) => () => chai.assert.isTrue(databases.map((x) => x.name).includes(dbName))),
+            TE.tapIO(({ db }) => () => db.close()),
+            TE.tapIO(() => () => console.log("Delete DB")),
+            TE.tap(({ factory }) => factory.deleteDatabase(dbName)),
+            TE.tapIO(() => () => console.log("Delete DB done")),
+            TE.bind("databases2", ({ factory }) => factory.databases()),
+            TE.tapIO(({ databases2 }) => () => chai.assert.isFalse(databases2.map((x) => x.name).includes(dbName)))
+        )()
+
+        chai.assert.isTrue(E.isRight(result))
+    })
+})
+
+describe("TypedIDBTransaction", function () {
+
+    it("transaction", async function () {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const result = await pipe(
+            TE.Do,
+            TE.apS("factory", TE.of(TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").factory())),
+            TE.bind("req", ({ factory }) => factory.open(dbName)),
+            TE.bindW("db", ({ req }) => TE.of(req.result)),
+            TE.bindW("txn", ({ db }) => db.transaction(["store1", "store2"], "readwrite", { durability: "default" })),
+            TE.bindW("store", ({ txn }) => TE.fromEither(txn.objectStore("store1"))),
+            TE.tapIO(({ db }) => () => db.close()),
+            TE.tap(({ factory }) => factory.deleteDatabase(dbName))
+        )()
+
+        chai.assert.isTrue(E.isRight(result))
+    })
+})
+
+describe("TypedIDBObjectStore", function () {
+
+    it("cont", async function () {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const result = await pipe(
+            TE.Do,
+            TE.apS("factory", TE.of(TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").factory())),
+            TE.bind("req", ({ factory }) => factory.open(dbName)),
+            TE.bindW("db", ({ req }) => TE.of(req.result)),
+            TE.bindW("txn", ({ db }) => db.transaction(["store1", "store2"], "readwrite", { durability: "default" })),
+            TE.bindW("store", ({ txn }) => TE.fromEither(txn.objectStore("store1"))),
+            TE.bind("req1", ({store})=>TE.fromIO(()=>store.add(data1_1))),
+            TE.tapIO(() => () => console.log("after req1")),
+            TE.bind("req2", ({store, req1})=>req1.cont(()=>store.add(data1_2))),
+            TE.tapIO(() => () => console.log("after req2")),
+            TE.bind("req3", ({store, req2})=>req2.cont(()=>store.get("hello"))),
+            TE.tapIO(() => () => console.log("after req3")),                        
+            TE.bind("req4", ({store, req3})=>req3.cont(()=>store.get("hello"))),            
+            TE.tapIO(() => () => console.log("after req4")),
+            TE.tapIO(({req3}) => async () => console.log(req3.result)),
+            TE.tapIO(({req3}) => async () => console.log(await req3.getResult())),
+            TE.tapIO(({ db }) => () => db.close()),
+            TE.tap(({ factory }) => factory.deleteDatabase(dbName))
+        )()
+
+        chai.assert.isTrue(E.isRight(result))
+    })
+})
+
+/*
 describe("typed-idb", ()=>{   
 
     describe("database lifecycle", () => {
@@ -200,7 +257,7 @@ describe("type restriction", ()=>{
         startTypedIDB<IdbData>().store("store1").keyPath(["key1", "key3"])
     })
 })
-
+*/
 
 describe("IDBFactory", ()=>{
     describe("#open()", ()=>{

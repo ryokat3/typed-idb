@@ -1,9 +1,11 @@
 import * as E from "fp-ts/Either"
 import * as T from "fp-ts/Task"
 import * as TE from "fp-ts/TaskEither"
+import * as RTE from "fp-ts/ReaderTaskEither"
 import { pipe, identity } from "fp-ts/function"
 import * as OC from "./OnCallback"
-import { KeyPath, Cast } from "boost-ts.types"
+import { KeyPath } from "boost-ts.types"
+import { AppError } from "./AppError"
 
 ////////////////////////////////////////////////////////////////
 // Database Scheme Types
@@ -18,47 +20,176 @@ export type UserDataType = {
 
 
 type IndexScheme<StoreData, UserKeyPath=KeyPathType<StoreData>> = {
-    keyPath: StrKey<UserKeyPath>,
-    options: {
-        unique: boolean
-        multiEntry: boolean
-        locale: string|"auto"|null|undefined
+    readonly keyPath: StrKey<UserKeyPath>,
+    readonly options: {
+        readonly unique: boolean
+        readonly multiEntry: boolean
+        readonly locale: string|"auto"|null|undefined
     }
 }
 
 type StoreObjectScheme<StoreData, UserKeyPath = KeyPathType<StoreData>> = [ UserKeyPath ] extends [ Record<string,unknown> ] ? {
-    keyPath: StrKey<UserKeyPath> | undefined,
-    autoIncrement: boolean,
-    indexes: {
-        [indexName:string]: IndexScheme<UserKeyPath>
+    readonly keyPath: undefined | StrKey<UserKeyPath> | readonly StrKey<UserKeyPath>[]    
+    readonly autoIncrement: boolean,
+    readonly indexes: {
+        readonly [indexName:string]: IndexScheme<UserKeyPath>
     }           
 } : {
-    keyPath: undefined,    
-    autoIncrement: boolean,
-    indexes: {}
+    readonly keyPath: undefined,    
+    readonly autoIncrement: boolean,
+    readonly indexes: {}
 }
 
 export type DatabaseScheme<T extends UserDataType> = {
-    [storeName in StrKey<T>]: StoreObjectScheme<T[storeName]>
+    readonly [storeName in StrKey<T>]: StoreObjectScheme<T[storeName]>
 }
 
+
 ////////////////////////////////////////////////////////////////
-// Upgrade Database Scheme
+// Scheme Builder
 ////////////////////////////////////////////////////////////////
 
-function isSameIndex<UserKeyPath extends Record<string,IDBValidKey>>(index:IDBIndex, config:IndexScheme<UserKeyPath>): boolean {
-    // NOTE: Ignore "locale" and "isAutoLocale" properties because they may not be implemented
-    return (index.keyPath === config.keyPath) && (index.unique === config.options.unique) && (index.multiEntry === config.options.multiEntry)
+export function TypedIDBBuilder<T>() {
+    return new TypedIDBDatabaseBuilder<T, { [K in keyof T]: KeyPathType<T[K]> }>({})
 }
 
-function upgradeIndexScheme<UserKeyPath extends Record<string,IDBValidKey>>(store:IDBObjectStore, name:string, config:IndexScheme<UserKeyPath>): IDBIndex {
+class TypedIDBDatabaseBuilder<
+    T,
+    KP,
+    StoreKeyValue = {},
+    IndexKeyValue = {},
+    OutOfLineKey = {},
+    UsedStoreNames = never
+> {    
+    constructor(protected readonly scheme:any = {}) {}
+
+    // #Parameter: 0    
+    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>>
+            (storeName:StoreName):
+                TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreName, UsedStoreNames | StoreName>
+    // #Parameter: 1
+    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>,
+        K1 extends keyof KP[StoreName]|boolean>
+            (storeName:StoreName, k1:K1): K1 extends keyof KP[StoreName] ?
+                TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue & { [K in StoreName]: KP[StoreName][K1] }, IndexKeyValue, OutOfLineKey, StoreName, UsedStoreNames | StoreName> : 
+                TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey & { [K in StoreName]: K1 extends false ? true : false }, StoreName, UsedStoreNames | StoreName>
+    // #Parameter: 2                
+    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>,
+        K1 extends keyof KP[StoreName], K2 extends Exclude<keyof KP[StoreName], K1>|(KP[StoreName][K1] extends number ? boolean : false)>
+            (storeName:StoreName, k1:K1, k2:K2): K2 extends keyof KP[StoreName] ?
+                TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue & { [K in StoreName]: [ KP[StoreName][K1], KP[StoreName][K2] ] }, IndexKeyValue, OutOfLineKey, StoreName, UsedStoreNames | StoreName> :
+                TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue & { [K in StoreName]: KP[StoreName][K1] }, IndexKeyValue, OutOfLineKey & { [K in StoreName]: K2 extends false ? true : false }, StoreName, UsedStoreNames | StoreName>
+    // #Parameter: 3                
+    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>,
+        K1 extends keyof KP[StoreName], K2 extends Exclude<keyof KP[StoreName], K1>, K3 extends Exclude<keyof KP[StoreName], K1|K2>>
+            (storeName:StoreName, k1:K1, k2:K2, k3:K3):
+                TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue & { [K in StoreName]: [ KP[StoreName][K1], KP[StoreName][K2], KP[StoreName][K3] ] }, IndexKeyValue, OutOfLineKey, StoreName, UsedStoreNames | StoreName>                                                  
+    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>>(storeName:StoreName, ...param:any[]):any    
+    {   
+        console.log((param.length === 0) ? {
+                    keyPath: null,
+                    autoIncrement: false
+                } : (typeof param[-1] === "boolean") ? {
+                    keyPath: (param.length === 1) ? null : (param.length === 2) ? param[0] : param.slice(0,-1),                
+                    autoIncrement: param[-1]
+                } : {
+                    keyPath: (param.length === 1) ? param[0] : param.slice(0,-1),
+                    autoIncrement: false
+                })              
+        return new TypedIDBObjectStoreBuilder<
+            T,
+            KP,
+            StoreKeyValue,            
+            IndexKeyValue,            
+            OutOfLineKey,
+            StoreName,            
+            UsedStoreNames | StoreName
+        >({
+            ...this.scheme,
+            [storeName] : {
+                option: (param.length === 0) ? {
+                    keyPath: null,
+                    autoIncrement: false
+                } : (typeof param[-1] === "boolean") ? {
+                    keyPath: (param.length === 1) ? null : (param.length === 2) ? param[0] : param.slice(0,-1),                
+                    autoIncrement: param[-1]
+                } : {
+                    keyPath: (param.length === 1) ? param[0] : param.slice(0,-1),
+                    autoIncrement: false
+                },
+                index: {}
+            }
+        }, storeName)
+    }
+
+    factory() {
+        return new TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(buildIDBDatabase(this.scheme))
+    }    
+}
+
+class TypedIDBObjectStoreBuilder<
+    T,
+    KP,
+    StoreKeyValue,
+    IndexKeyValue,
+    OutOfLineKey,
+    StoreName extends keyof KP,    
+    UsedStoreNames,
+    UsedIndexKeyPath = never,
+    UsedIndexNames = never
+> extends TypedIDBDatabaseBuilder<T, KP, StoreKeyValue, IndexKeyValue, UsedStoreNames> {    
+
+    constructor(scheme:any, private readonly storeName:keyof typeof scheme) {
+        super(scheme)    
+    }
+
+    index<
+        IndexKeyPath extends Exclude<keyof KP[StoreName], UsedIndexKeyPath>,
+        IndexName extends string
+    >(
+        indexName:IndexName extends UsedIndexNames ? never : IndexName,
+        indexKeyPath:IndexKeyPath,
+        option: Required<IDBIndexParameters> = { unique: false, multiEntry:false, }
+    ) {        
+        return new TypedIDBObjectStoreBuilder<
+            T,
+            KP,
+            StoreKeyValue,
+            IndexKeyValue & { [K1 in StoreName]: { "index" : { [K2 in IndexName]: KP[StoreName][IndexKeyPath]} } },
+            OutOfLineKey,
+            StoreName,            
+            UsedStoreNames,
+            UsedIndexKeyPath | IndexKeyPath,
+            UsedIndexNames | IndexName         
+        >({
+            ...this.scheme,
+            [this.storeName]: {
+                ...this.scheme[this.storeName],
+                index: {
+                    ...this.scheme[this.storeName].index,
+                    [indexName]: {
+                        keyPath: indexKeyPath,
+                        option: option
+                    }
+                }
+            }
+        }, this.storeName)
+    }        
+}
+
+
+////////////////////////////////////////////////////////////////
+// onUpgradeNeeded
+////////////////////////////////////////////////////////////////
+
+function buildIDBIndex(store:IDBObjectStore, indexName:string, indexOption:Required<IDBIndexParameters>): IDBIndex {
     try {
-        const index = store.index(name)    
-        if (isSameIndex<UserKeyPath>(index, config)) {
+        const index = store.index(indexName)          
+        if ((index.keyPath === indexName) && (index.unique === indexOption.unique) && (index.multiEntry === indexOption.multiEntry)) {
             return index
         }
         else {
-            store.deleteIndex(name)
+            store.deleteIndex(indexName)
         }
     }  
     catch (e) {
@@ -66,14 +197,14 @@ function upgradeIndexScheme<UserKeyPath extends Record<string,IDBValidKey>>(stor
             throw e    
         }
     }
-    return store.createIndex(name, config.keyPath as string, config.options)
+    return store.createIndex(indexName, indexName, indexOption)
 }
 
-function upgradeStoreScheme<T extends UserDataType, StoreName extends StrKey<T>>(db:IDBDatabase, name: StoreName, scheme:StoreObjectScheme<T[StoreName]>): IDBObjectStore {
+function buildIDBObjectStore(db:IDBDatabase, name:string, option:Required<IDBObjectStoreParameters>): IDBObjectStore {
 
     try {
         const store = db.transaction(name, "readonly").objectStore(name)        
-        if ((store.keyPath === scheme.keyPath) || (store.autoIncrement === scheme.autoIncrement)) {
+        if ((store.keyPath === option.keyPath) || (store.autoIncrement === option.autoIncrement)) {
             return store
         }
         else {            
@@ -87,63 +218,52 @@ function upgradeStoreScheme<T extends UserDataType, StoreName extends StrKey<T>>
             throw e    
         }
     }    
-    return db.createObjectStore(name, scheme)
+    return db.createObjectStore(name, option)
 }
 
-
-function entries<T extends Record<string,any>>(obj: T):[StrKey<T>, T[keyof T]][] {
-    return Object.entries(obj) as [StrKey<T>, T[keyof T]][]
-}
-
-
-function upgradeDatabaseScheme<T extends UserDataType>(dbScheme:DatabaseScheme<T>) {
+function buildIDBDatabase(scheme:any) {
 
     return async (db: IDBDatabase):Promise<void> => {            
-        for (const [storeName, storeScheme] of entries(dbScheme)) {
+        for (const [storeName, storeOption] of Object.entries(scheme)) {
             
-            const store = upgradeStoreScheme<T, typeof storeName>(db, storeName, storeScheme)
+            const store = buildIDBObjectStore(db, storeName, (storeOption as any).option as Required<IDBObjectStoreParameters>)
                         
-            for (const [indexName, indexScheme] of entries(storeScheme.indexes)) {            
-                upgradeIndexScheme(store, indexName, indexScheme)
+            for (const [indexName, indexOption] of Object.entries((storeOption as any).index)) {            
+                buildIDBIndex(store, indexName, indexOption as Required<IDBIndexParameters>)
             }            
         }
     }
-}
-
-function onUpgradeNeededCB<T extends UserDataType>(dbConfig:DatabaseScheme<T>) {
-
-    return async (event:IDBVersionChangeEvent) => await pipe(                    
-        TE.Do,            
-        TE.bind("req", ()=>TE.fromNullable("IDBOpenDBRequest is null")(event.target as IDBOpenDBRequest | null)),        
-        TE.bind("db", ({req})=>TE.of(req.result)), 
-        TE.tapTask(({db})=>()=>upgradeDatabaseScheme<T>(dbConfig)(db)),
-        // TE.map(({db})=>db)
-        TE.map(({req})=>req)
-    )()
-}
+} 
 
 ////////////////////////////////////////////////////////////////
 // IDBFactory Typed Thin Wrapper
 ////////////////////////////////////////////////////////////////
 
-export class FpIDBFactory<T extends UserDataType> {
+class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
 
     private readonly factory:IDBFactory = indexedDB
+    private readonly buildCallback: (event:IDBVersionChangeEvent)=>Promise<E.Either<unknown,IDBOpenDBRequest>>
 
-    constructor(private readonly scheme:DatabaseScheme<T>) {}
+    constructor(builder:(db: IDBDatabase)=>Promise<void> ) {
+        this.buildCallback =  (event: IDBVersionChangeEvent) => pipe(
+            TE.Do,
+            TE.bind("req", () => TE.fromNullable("IDBOpenDBRequest is null")(event.target as IDBOpenDBRequest | null)),
+            TE.bind("db", ({ req }) => TE.of(req.result)),
+            TE.tapTask(({ db }) => () => builder(db)),                    
+            TE.map(({ req }) => req)
+        )() 
+    }
           
     open(name:string, version:number|undefined = undefined) {
         return pipe(
             TE.fromNullable("IDBFactory.open() returns null")(indexedDB.open(name, version)),
             TE.chainW((req)=>OC.taskify(req, {
-                ...OC.defaultSet,                
-                onupgradeneeded: onUpgradeNeededCB(this.scheme),
-                // onsuccess: (_e)=>req.result,           
+                ...OC.defaultSet,                                
+                onupgradeneeded: this.buildCallback,
                 onsuccess: (_e)=>req,           
                 onblocked: OC.failureCallback
-            })),
-            // TE.map((db)=>new FpIDBDatabase<T, typeof this.scheme>(db.result, this.scheme))
-            TE.chainTaskK((newReq)=>getIDBRequestTask<T, typeof this.scheme, FpIDBDatabase<T, typeof this.scheme>>(newReq, this.scheme, (db)=>new FpIDBDatabase<T, typeof this.scheme>(db, this.scheme)))
+            })),            
+            TE.chainTaskK((newReq)=>getIDBRequestTask<TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>>(newReq, (db)=>new TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db)))
         )      
     }
 
@@ -169,52 +289,77 @@ export class FpIDBFactory<T extends UserDataType> {
     }    
 }
 
-export function getIDBRequestTask<T extends UserDataType, Scheme extends DatabaseScheme<T>, ResultType>(
-    request:IDBRequest,
-    scheme:Scheme,
-    resultWrapper:(result:any, scheme:Scheme)=>ResultType 
+function getIDBRequestTask<ResultType>(
+    request: IDBRequest,
+    resultWrapper: (result: any) => ResultType
 ) {
-
-    class FpIDBRequest<Scheme, ResultType>  {
-
-        constructor(
-            private readonly request:IDBRequest,
-            private readonly scheme:Scheme,
-            private readonly resultWrapper:(result:any, scheme:Scheme)=>ResultType        
-            ) {}
-    
-        get result() {        
-            return this.resultWrapper(this.request.result, this.scheme)
-        }        
-    }
-
-    return pipe(                
+    return pipe(
         TE.fromEither(E.fromNullable("Not error")(request.transaction)),
-        TE.chainW((txn)=>OC.taskify(txn, OC.defaultSet)),        
-        TE.getOrElseW((_)=>async()=>null),                
-        T.map((_)=>new FpIDBRequest(request, scheme, resultWrapper))        
+        TE.chainW((txn) => OC.taskify(txn, OC.defaultSet)),
+        TE.getOrElseW((_) => async () => null),
+        T.map((_) => new TypedIDBRequest(request, resultWrapper))
     )
-}   
+}
 
-
-class FpIDBDatabase<T extends UserDataType, Scheme extends DatabaseScheme<T>> {
+class TypedIDBRequest<ResultType> {
 
     constructor(
-        private readonly db:IDBDatabase,
-        private readonly scheme:Scheme
-    ){ }
+        // private readonly request: IDBRequest,
+        public readonly request: IDBRequest,
+        private readonly resultWrapper: (result: any) => ResultType
+    ) { 
+        console.log(`IDBRequest: ${request}`)    
+    }
 
-    transaction(
-        storeNames: StrKey<T> | StrKey<T>[],
+    get result() {
+        return this.resultWrapper(this.request.result)
+    }
+    
+    exec() {
+        return pipe(
+            TE.fromEither(E.fromNullable("Not error")(this.request.transaction)),
+            TE.chainW((txn) => OC.taskify(txn, OC.defaultSet)),
+            TE.getOrElseW((_) => async () => null),
+            T.map((_) => new TypedIDBRequest(this.request, this.resultWrapper))
+        )        
+    }
+
+    cont<T>(f: (r: ResultType) => TypedIDBRequest<T>){
+        return TE.tryCatch<unknown, TypedIDBRequest<T>>(()=>new Promise((resolv, reject) => {
+            this.request.onsuccess = (_e: Event) => {
+                resolv(f(this.request.result))
+            }
+            this.request.onerror = (e:Event) => {
+                reject(e)
+            }
+        }), identity)
+    }  
+
+    async getResult() {
+        return (this.request.readyState === "done") ? E.right(this.resultWrapper(this.request.result)) :
+        pipe(            
+            OC.taskify(this.request, OC.defaultSet),
+            TE.map((_)=>this.resultWrapper(this.request.result))
+        )()
+    }    
+}
+
+class TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
+
+    constructor(private readonly db:IDBDatabase){ }
+
+    // TODO: mode と options はないかもしれない overload    
+    transaction<StoreNames extends (keyof T & string) | (keyof T & string)[]>(
+        storeNames: StoreNames,                             // StoreNames for ["key1", "key2"] is ("key1"|"key2")[]
         mode: "readonly"|"readwrite"|undefined = undefined,
         options: {
             durability: "default"|"strict"|"relaxed"
         }
-    ) {        
+    ) {             
         return pipe(
             E.tryCatch(()=>this.db.transaction(storeNames, mode, options), identity),
-            TE.fromEither,            
-            TE.map((trx)=>new FpIDBTransaction<T,typeof this.scheme>(trx, this.scheme))
+            TE.fromEither,                        
+            TE.map((trx)=>new TypedIDBTransaction<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreNames extends (infer X)[] ? X : StoreNames>(trx))
         )
     }
 
@@ -223,53 +368,48 @@ class FpIDBDatabase<T extends UserDataType, Scheme extends DatabaseScheme<T>> {
     }    
 }
 
-class FpIDBTransaction<T extends UserDataType, Scheme extends DatabaseScheme<T>> {
+class TypedIDBTransaction<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreNameList> { 
 
     public readonly done:TE.TaskEither<[string, string], Event>
 
     constructor(
-        private readonly trx:IDBTransaction,
-        private readonly scheme:Scheme
+        private readonly trx:IDBTransaction
     ) {
         this.done = OC.taskify(this.trx, OC.defaultSet)
     }
 
-    objectStore<StoreName extends StrKey<T>>(name:StoreName) {
+    // TODO: StoreName は transaction で選ばれたものだけ候補にでるようにする
+    // objectStore<StoreName extends StrKey<T>>(name:StoreName) {
+    objectStore<StoreName extends StoreNameList & keyof T & string>(name:StoreName) {
         return pipe(
             E.tryCatch<DOMException, IDBObjectStore>(()=>this.trx.objectStore(name), identity as any),            
-            E.map((store)=>new FpIDBObjectStore<T, Scheme, StoreName>(store, this.scheme[name]))
+            E.map((store)=>new TypedIDBObjectStore<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreName>(store))
         )
     }  
 }    
 
-class FpIDBObjectStore<T extends UserDataType, Scheme extends DatabaseScheme<T>, StoreName extends StrKey<T>> {
+class TypedIDBObjectStore<T, _KP, StoreKeyValue, _IndexKeyValue, OutOfLineKey, StoreName extends keyof T> {    
 
     constructor(
-        private readonly store:IDBObjectStore,
-        private readonly scheme:Scheme[StoreName]       
+        private readonly store:IDBObjectStore        
     ) {}
     
-    add(value:T[StoreName]): IDBRequest
-    add(value:T[StoreName], key:(typeof this.scheme extends { keyPath:undefined } ? IDBValidKey : typeof this.scheme extends { keyPath:any } ? never : IDBValidKey) | never): IDBRequest
-    add(value:T[StoreName], key:any=undefined): any {
-        if (key === undefined) {
-            this.store.add(value)
-        }
-        else {
-            this.store.add(value, key)
-        }
+    add(value:T[StoreName]): TypedIDBRequest<void>    
+    add(value:T[StoreName], key:StoreName extends keyof OutOfLineKey ? OutOfLineKey[StoreName] extends true ? IDBValidKey : never : never): TypedIDBRequest<void>
+    add(value:T[StoreName], key:any=undefined) {                
+        return new TypedIDBRequest((key === undefined) ? this.store.add(value) : this.store.add(value, key), identity as any)
     }
-/*
-    hehe(pp:keyof KeyPathType<T[StoreName]>, value:KeyPathType<T[StoreName]>[typeof pp]):void {
-
+    
+    get(keyValue:StoreKeyValue[StoreName & keyof StoreKeyValue] & IDBValidKey) {        
+        return new TypedIDBRequest(this.store.get(keyValue), identity as any)
     }
-*/    
 }
 
 ////////////////////////////////////////////////////////////////
 // IDBFactory Wrapper
 ////////////////////////////////////////////////////////////////
 
+/*
 function createOnUpgradeNeeded(idbSetup:(db:IDBDatabase)=>Promise<void>) {
 
     return async (event:IDBVersionChangeEvent) => await pipe(            
@@ -379,7 +519,6 @@ class TypedIDBStore<DbData extends Record<string,unknown>, StoreName extends key
 // IDBIndex Wrapper
 ////////////////////////////////////////////////////////////////
 
-/*
 class TypedIDBIndex {
     constructor(
         private readonly idbIndex: IDBIndex
@@ -389,7 +528,6 @@ class TypedIDBIndex {
         return OC.taskify(this.idbIndex.count(), OC.defaultSet)
     }
 }
-*/
 
 ////////////////////////////////////////////////////////////////
 // IDB Setup
@@ -579,6 +717,4 @@ class TypedIDBIndexSetup<DbData extends Record<string,unknown>, StoreNameList ex
         }, this.storeName, this.indexName)
     }
 }
-
-
-
+*/
