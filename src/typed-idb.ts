@@ -1,5 +1,4 @@
 import * as E from "fp-ts/Either"
-import * as T from "fp-ts/Task"
 import * as TE from "fp-ts/TaskEither"
 import { pipe, identity } from "fp-ts/function"
 import * as OC from "./OnCallback"
@@ -247,7 +246,9 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
             TE.Do,
             TE.bind("req", () => TE.fromNullable("IDBOpenDBRequest is null")(event.target as IDBOpenDBRequest | null)),
             TE.bind("db", ({ req }) => TE.of(req.result)),
-            TE.tapTask(({ db }) => () => builder(db)),                    
+            TE.tapTask(({ db }) => () => builder(db)), 
+            TE.tap(({ req }) => TE.fromNullable("Not error")(req.transaction)),
+            TE.tap(({ req }) => OC.taskify(req.transaction, OC.defaultSet)),
             TE.map(({ req }) => req)
         )() 
     }
@@ -260,8 +261,8 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
                 onupgradeneeded: this.buildCallback,
                 onsuccess: (_e)=>req,           
                 onblocked: OC.failureCallback
-            })),            
-            TE.chainTaskK((newReq)=>getIDBRequestTask<TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>>(newReq, (db)=>new TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db)))
+            })),                        
+            TE.map((newReq)=>new TypedIDBRequest(newReq, (db)=>new TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db)))            
         )      
     }
 
@@ -287,39 +288,12 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
     }    
 }
 
-
-function getIDBRequestTask<ResultType>(
-    request: IDBRequest,
-    resultWrapper: (result: any) => ResultType
-) {
-    return pipe(
-        TE.fromEither(E.fromNullable("Not error")(request.transaction)),
-        TE.chainW((txn) => OC.taskify(txn, OC.defaultSet)),
-        TE.getOrElseW((_) => async () => null),
-        // T.map((_) => new TypedIDBRequest(request, resultWrapper))
-        T.map((_) => resultWrapper(request.result))
-    )
-}
-
-
 class TypedIDBRequest<ResultType> {
 
     constructor(
-        // private readonly request: IDBRequest,
-        public readonly request: IDBRequest,
+        private readonly request: IDBRequest,        
         private readonly resultWrapper: (result: any) => ResultType
-    ) { 
-        console.log(`IDBRequest: ${request}`)    
-    }
-   
-    exec() {
-        return pipe(
-            TE.fromEither(E.fromNullable("Not error")(this.request.transaction)),
-            TE.chainW((txn) => OC.taskify(txn, OC.defaultSet)),
-            TE.getOrElseW((_) => async () => null),
-            T.map((_) => new TypedIDBRequest(this.request, this.resultWrapper))
-        )        
-    }
+    ) {}
 
     cont<T>(f: (r: ResultType) => TypedIDBRequest<T>){
         return TE.tryCatch<unknown, TypedIDBRequest<T>>(()=>new Promise((resolv, reject) => {
@@ -332,11 +306,11 @@ class TypedIDBRequest<ResultType> {
         }), identity)
     }  
 
-    async result() {
+    get result() {
         return pipe(
             this.request.readyState === "done" ? TE.right(this.request) : pipe(OC.taskify(this.request, OC.defaultSet), TE.map((_)=>this.request)),
             TE.map((req)=>this.resultWrapper(req.result))
-        )()
+        )
     }    
 }
 
@@ -345,7 +319,7 @@ class TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
     constructor(private readonly db:IDBDatabase){ }
 
     // TODO: mode と options はないかもしれない overload    
-    transaction<StoreNames extends (keyof T & string) | (keyof T & string)[]>(
+    transaction<const StoreNames extends (keyof T & string) | (keyof T & string)[]>(
         storeNames: StoreNames,                             // StoreNames for ["key1", "key2"] is ("key1"|"key2")[]
         mode: "readonly"|"readwrite"|undefined = undefined,
         options: {

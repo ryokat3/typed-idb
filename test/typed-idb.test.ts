@@ -90,7 +90,8 @@ describe("TypedIDBDatabase", function () {
         const result = await pipe(
             TE.Do,
             TE.apS("factory", TE.of(TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").factory())),
-            TE.bind("db", ({ factory }) => factory.open(dbName)),            
+            TE.bind("dbreq", ({ factory }) => factory.open(dbName)),            
+            TE.bindW("db", ({ dbreq }) => dbreq.result),            
             TE.bind("databases", ({ factory }) => factory.databases()),
             TE.tapIO(({ databases }) => () => chai.expect(databases.length).to.be.above(0)),
             TE.tapIO(({ databases }) => () => chai.assert.isTrue(databases.map((x) => x.name).includes(dbName))),
@@ -116,7 +117,8 @@ describe("TypedIDBTransaction", function () {
         const result = await pipe(
             TE.Do,
             TE.apS("factory", TE.of(TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").factory())),
-            TE.bind("db", ({ factory }) => factory.open(dbName)),            
+            TE.bind("dbreq", ({ factory }) => factory.open(dbName)),            
+            TE.bindW("db", ({ dbreq }) => dbreq.result),            
             TE.bindW("txn", ({ db }) => db.transaction(["store1", "store2"], "readwrite", { durability: "default" })),
             TE.bindW("store", ({ txn }) => TE.fromEither(txn.objectStore("store1"))),
             TE.tapIO(({ db }) => () => db.close()),
@@ -137,7 +139,8 @@ describe("TypedIDBObjectStore", function () {
         const result = await pipe(
             TE.Do,
             TE.apS("factory", TE.of(TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").factory())),
-            TE.bind("db", ({ factory }) => factory.open(dbName)),            
+            TE.bind("dbreq", ({ factory }) => factory.open(dbName)),                        
+            TE.bindW("db", ({ dbreq }) => dbreq.result),                        
             TE.bindW("txn", ({ db }) => db.transaction(["store1", "store2"], "readwrite", { durability: "default" })),
             TE.bindW("store", ({ txn }) => TE.fromEither(txn.objectStore("store1"))),
             TE.bind("req1", ({store})=>TE.fromIO(()=>store.add(data1_1))),
