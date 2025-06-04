@@ -1,11 +1,9 @@
 import * as E from "fp-ts/Either"
 import * as T from "fp-ts/Task"
 import * as TE from "fp-ts/TaskEither"
-import * as RTE from "fp-ts/ReaderTaskEither"
 import { pipe, identity } from "fp-ts/function"
 import * as OC from "./OnCallback"
 import { KeyPath } from "boost-ts.types"
-import { AppError } from "./AppError"
 
 ////////////////////////////////////////////////////////////////
 // Database Scheme Types
@@ -255,7 +253,7 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
     }
           
     open(name:string, version:number|undefined = undefined) {
-        return pipe(
+        return pipe(            
             TE.fromNullable("IDBFactory.open() returns null")(indexedDB.open(name, version)),
             TE.chainW((req)=>OC.taskify(req, {
                 ...OC.defaultSet,                                
@@ -289,6 +287,7 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
     }    
 }
 
+
 function getIDBRequestTask<ResultType>(
     request: IDBRequest,
     resultWrapper: (result: any) => ResultType
@@ -297,9 +296,11 @@ function getIDBRequestTask<ResultType>(
         TE.fromEither(E.fromNullable("Not error")(request.transaction)),
         TE.chainW((txn) => OC.taskify(txn, OC.defaultSet)),
         TE.getOrElseW((_) => async () => null),
-        T.map((_) => new TypedIDBRequest(request, resultWrapper))
+        // T.map((_) => new TypedIDBRequest(request, resultWrapper))
+        T.map((_) => resultWrapper(request.result))
     )
 }
+
 
 class TypedIDBRequest<ResultType> {
 
@@ -310,11 +311,7 @@ class TypedIDBRequest<ResultType> {
     ) { 
         console.log(`IDBRequest: ${request}`)    
     }
-
-    get result() {
-        return this.resultWrapper(this.request.result)
-    }
-    
+   
     exec() {
         return pipe(
             TE.fromEither(E.fromNullable("Not error")(this.request.transaction)),
@@ -335,11 +332,10 @@ class TypedIDBRequest<ResultType> {
         }), identity)
     }  
 
-    async getResult() {
-        return (this.request.readyState === "done") ? E.right(this.resultWrapper(this.request.result)) :
-        pipe(            
-            OC.taskify(this.request, OC.defaultSet),
-            TE.map((_)=>this.resultWrapper(this.request.result))
+    async result() {
+        return pipe(
+            this.request.readyState === "done" ? TE.right(this.request) : pipe(OC.taskify(this.request, OC.defaultSet), TE.map((_)=>this.request)),
+            TE.map((req)=>this.resultWrapper(req.result))
         )()
     }    
 }
