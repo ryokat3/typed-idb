@@ -5,6 +5,9 @@ import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
 import { pipe } from "fp-ts/function"
 
+// import comments from "./comments.json"
+// import photos from "./photos.json"
+
 type IdbData = {
     "store1": {
         "key1": {
@@ -159,6 +162,42 @@ describe("TypedIDBObjectStore", function () {
 
         chai.assert.isTrue(E.isRight(result))
     })
+    /*
+    it("cont2", async function() {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const builder = TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value")
+
+        const hehe = builder.client(
+            (stores)=>{
+                return pipe(
+                    TE.fromIO(()=>stores["store1"].add(data1_1)),
+                    TE.chain((req)=>req.cont(()=>stores["store1"].add(data1_2))),
+                    TE.chain((req)=>req.cont(()=>stores["store1"].get("hello"))),
+                    TE.chain((req)=>req.cont(()=>stores["store1"].get("hello")))
+                )                
+            }            
+        )
+
+        const result = await pipe(            
+            TE.of(builder.factory()),
+            TE.chain((factory) => factory.open(dbName)),                        
+            TE.chainW((req) => req.result),
+            TE.chain((db) => db.transaction(["store1", "store2"], "readwrite", { durability: "default" })),
+            TE.chainW((txn) => TE.fromEither(txn.objectStore("store1"))),
+            TE.tap((store)=>pipe(
+                TE.fromIO(()=>store.add(data1_1)),
+                TE.chain((req)=>req.cont(()=>store.add(data1_2))),
+                TE.chain((req)=>req.cont(()=>store.get("hello"))),
+                TE.chain((req)=>req.cont(()=>store.get("hello")))
+            )),
+        )()   
+
+        chai.assert.isTrue(E.isRight(result))        
+    })   
+    */    
 })
 
 /*

@@ -61,27 +61,27 @@ class TypedIDBDatabaseBuilder<
     constructor(protected readonly scheme:any = {}) {}
 
     // #Parameter: 0    
-    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>>
+    objectStore<const StoreName extends Exclude<keyof KP, UsedStoreNames>>
             (storeName:StoreName):
                 TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreName, UsedStoreNames | StoreName>
     // #Parameter: 1
-    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>,
+    objectStore<const StoreName extends Exclude<keyof KP, UsedStoreNames>,
         K1 extends keyof KP[StoreName]|boolean>
             (storeName:StoreName, k1:K1): K1 extends keyof KP[StoreName] ?
                 TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue & { [K in StoreName]: KP[StoreName][K1] }, IndexKeyValue, OutOfLineKey, StoreName, UsedStoreNames | StoreName> : 
                 TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey & { [K in StoreName]: K1 extends false ? true : false }, StoreName, UsedStoreNames | StoreName>
     // #Parameter: 2                
-    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>,
+    objectStore<const StoreName extends Exclude<keyof KP, UsedStoreNames>,
         K1 extends keyof KP[StoreName], K2 extends Exclude<keyof KP[StoreName], K1>|(KP[StoreName][K1] extends number ? boolean : false)>
             (storeName:StoreName, k1:K1, k2:K2): K2 extends keyof KP[StoreName] ?
                 TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue & { [K in StoreName]: [ KP[StoreName][K1], KP[StoreName][K2] ] }, IndexKeyValue, OutOfLineKey, StoreName, UsedStoreNames | StoreName> :
                 TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue & { [K in StoreName]: KP[StoreName][K1] }, IndexKeyValue, OutOfLineKey & { [K in StoreName]: K2 extends false ? true : false }, StoreName, UsedStoreNames | StoreName>
     // #Parameter: 3                
-    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>,
+    objectStore<const StoreName extends Exclude<keyof KP, UsedStoreNames>,
         K1 extends keyof KP[StoreName], K2 extends Exclude<keyof KP[StoreName], K1>, K3 extends Exclude<keyof KP[StoreName], K1|K2>>
             (storeName:StoreName, k1:K1, k2:K2, k3:K3):
                 TypedIDBObjectStoreBuilder<T, KP, StoreKeyValue & { [K in StoreName]: [ KP[StoreName][K1], KP[StoreName][K2], KP[StoreName][K3] ] }, IndexKeyValue, OutOfLineKey, StoreName, UsedStoreNames | StoreName>                                                  
-    objectStore<StoreName extends Exclude<keyof KP, UsedStoreNames>>(storeName:StoreName, ...param:any[]):any    
+    objectStore<const StoreName extends Exclude<keyof KP, UsedStoreNames>>(storeName:StoreName, ...param:any[]):any    
     {   
         console.log((param.length === 0) ? {
                     keyPath: null,
@@ -121,8 +121,14 @@ class TypedIDBDatabaseBuilder<
 
     factory() {
         return new TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(buildIDBDatabase(this.scheme))
-    }    
+    }
+/*
+    client<A,E>(cb: (stores:{[K in keyof T]:TypedIDBObjectStore<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, K>})=>TE.TaskEither<A,E>) {
+        return cb
+    }
+*/        
 }
+
 
 class TypedIDBObjectStoreBuilder<
     T,
@@ -141,8 +147,8 @@ class TypedIDBObjectStoreBuilder<
     }
 
     index<
-        IndexKeyPath extends Exclude<keyof KP[StoreName], UsedIndexKeyPath>,
-        IndexName extends string
+        const IndexKeyPath extends Exclude<keyof KP[StoreName], UsedIndexKeyPath>,
+        const IndexName extends string
     >(
         indexName:IndexName extends UsedIndexNames ? never : IndexName,
         indexKeyPath:IndexKeyPath,
@@ -232,12 +238,15 @@ function buildIDBDatabase(scheme:any) {
     }
 } 
 
+
+
+
 ////////////////////////////////////////////////////////////////
 // IDBFactory Typed Thin Wrapper
 ////////////////////////////////////////////////////////////////
 
 class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
-
+   
     private readonly factory:IDBFactory = indexedDB
     private readonly buildCallback: (event:IDBVersionChangeEvent)=>Promise<E.Either<unknown,IDBOpenDBRequest>>
 
@@ -262,7 +271,7 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
                 onsuccess: (_e)=>req,           
                 onblocked: OC.failureCallback
             })),                        
-            TE.map((newReq)=>new TypedIDBRequest(newReq, (db)=>new TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db)))            
+            TE.map((newReq)=>new TypedIDBRequest(newReq, (db)=>new TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db)))                        
         )      
     }
 
@@ -350,7 +359,7 @@ class TypedIDBTransaction<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, Sto
 
     // TODO: StoreName は transaction で選ばれたものだけ候補にでるようにする
     // objectStore<StoreName extends StrKey<T>>(name:StoreName) {
-    objectStore<StoreName extends StoreNameList & keyof T & string>(name:StoreName) {
+    objectStore<const StoreName extends StoreNameList & keyof T & string>(name:StoreName) {
         return pipe(
             E.tryCatch<DOMException, IDBObjectStore>(()=>this.trx.objectStore(name), identity as any),            
             E.map((store)=>new TypedIDBObjectStore<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreName>(store))

@@ -21,3 +21,8 @@ An indexed DB library with strict parameter narrowing
 
 
 ### Thin wrapper but easy use
+
+
+# Resources / References
+
+- [{JSON}Placeholder](https://jsonplaceholder.typicode.com/) from which fake JSON test data is downloaded
