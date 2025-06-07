@@ -34,6 +34,10 @@ const data1_2:IdbData["store1"] = {
     "key3": 5
 }
 
+const data2_1:IdbData["store2"] = {
+    "value": 100
+}
+
 describe("TypedIDBBuilder", function(){
 
     it("store name check", function() {
@@ -172,15 +176,20 @@ describe("TypedIDBHandler", function () {
 
         const handler = TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").handler(dbName)
 
-        const callback = (store:TypedIDBCallbackParameter<typeof handler, "store1", "readwrite">)=>{
-                return pipe(
-                    TE.fromIO(()=>store.add(data1_1)),
-                    TE.chain((req)=>req.cont(()=>store.add(data1_2))),
-                    TE.chain((req)=>req.cont(()=>store.get("hello"))),
-                    TE.chainW((req)=>req.result),
-                    TE.tapIO((data)=>()=>chai.assert.equal(data.key3, 5))                    
-                )                
-            }
+        const callback = (store: TypedIDBCallbackParameter<typeof handler, "store1", "readwrite">) => {
+            console.log("single store callback started")
+            return pipe(
+                TE.fromIO(() => store.add(data1_1)),
+                TE.tapIO(() => () => console.log('added data1_1')),
+                TE.chain((req) => req.cont(() => store.add(data1_2))),
+                TE.tapIO(() => () => console.log('1 cb req finished')),
+                TE.chain((req) => req.cont(() => store.get("hello"))),
+                TE.tapIO(() => () => console.log('2 cb req finished')),
+                TE.chainW((req) => req.result),
+                TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
+                TE.tapIO(() => () => console.log('callback finished'))
+            )()
+        }
 
         const result = await pipe(
             ()=>handler,
@@ -197,15 +206,19 @@ describe("TypedIDBHandler", function () {
 
         const handler = TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").handler(dbName)
 
-        const callback = (store:TypedIDBCallbackParameter<typeof handler, ["store1", "store2"], "readwrite">)=>{
-                return pipe(
-                    TE.fromIO(()=>store["store1"].add(data1_1)),
-                    TE.chain((req)=>req.cont(()=>store["store1"].add(data1_2))),
-                    TE.chain((req)=>req.cont(()=>store["store1"].get("hello"))),
-                    TE.chainW((req)=>req.result),
-                    TE.tapIO((data)=>()=>chai.assert.equal(data.key3, 5))                    
-                )                
-            }
+        const callback = (store: TypedIDBCallbackParameter<typeof handler, ["store1", "store2"], "readwrite">) => {
+            console.log("multiple stores callback started")
+            return pipe(
+                TE.fromIO(() => store["store1"].add(data1_1)),
+                TE.chain((req) => req.cont(() => store["store1"].add(data1_2))),
+                TE.chain((req) => req.cont(() => store["store2"].add(data2_1))),
+                TE.chain((req) => req.cont(() => store["store2"].get(100))),
+                TE.chain((req) => req.cont(() => store["store1"].get("hello"))),
+                TE.chainW((req) => req.result),
+                TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
+                TE.tapIO(() => () => console.log('callback finished'))
+            )()
+        }
 
         const result = await pipe(
             ()=>handler,

@@ -1,6 +1,6 @@
 {
   "name": "typed-idb",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A HTML to pack all markdown files and assets in a single HTML with viewer",
   "main": "typed-idb.js",
   "scripts": {
