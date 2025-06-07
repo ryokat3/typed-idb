@@ -50,7 +50,7 @@ export function taskify<T, U extends OnCallbackSetType<T>,
     if (window.DEBUG) {
         const uncovered = getUncoveredEvents(obj, onCallbackSet)
         if (uncovered.length > 0) {
-            throw AppError.create("allEventNotCovered", uncovered)
+            throw AppError.create("All events not covered", uncovered)
         }
     }
 

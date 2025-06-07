@@ -1,8 +1,9 @@
 import { generateTypedError } from "./TypedError"
 
 type AppErrorType = {
-    allEventNotCovered: string[],
-    "Number of parameters is over limit": number
+    "All events not covered": string[],
+    "Number of parameters is over limit": number,
+    "Not expected type": string
 }
 
 export const AppError = generateTypedError<AppErrorType>(Symbol("TypedIDBError"))
