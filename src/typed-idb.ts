@@ -434,6 +434,12 @@ export type TypedIDBCallbackParameter<Handler, StoreNames, Mode extends "readonl
             never :
         never
 
+        
+export type ExecutorParameterType<Executor> = 
+    [ Executor ] extends [ E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown> | 
+            Promise<E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown>> |
+            TE.TaskEither<unknown, (cb:(p:infer P)=>unknown)=>unknown> ] ? P : never  
+
 class TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
 
     constructor(   
@@ -477,5 +483,19 @@ class TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
             TE.chainW((txn) => TE.fromEither(this.createCallbackParameter(txn, storeNames, mode))),
             TE.map((param)=>callback(param))
         )()
+    }
+
+    transaction<const StoreNames extends (keyof T & string) | (keyof T & string)[], const Mode extends "readonly"|"readwrite">(        
+        storeNames: StoreNames,
+        mode: Mode,        
+        options: {
+            durability: "default"|"strict"|"relaxed"
+        }
+    ) {        
+        return (callback:(param:TypedIDBCallbackParameter<typeof this, StoreNames, Mode>)=>unknown) => pipe(
+            this.database.transaction(storeNames, mode, options),
+            TE.chainW((txn) => TE.fromEither(this.createCallbackParameter(txn, storeNames, mode))),
+            TE.map((param)=>(callback(param)))
+        )()        
     }
 }

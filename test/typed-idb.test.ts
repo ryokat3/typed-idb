@@ -1,5 +1,5 @@
 // <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
-import { TypedIDBBuilder, TypedIDBCallbackParameter } from "../src/typed-idb"
+import { TypedIDBBuilder, TypedIDBCallbackParameter, ExecutorParameterType } from "../src/typed-idb"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
@@ -198,7 +198,73 @@ describe("TypedIDBHandler", function () {
 
         chai.assert.isTrue(E.isRight(result))        
     })
+
+    it("exec single store", async function() {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const handler = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").handler(dbName)
+        const executor = pipe(
+            handler,
+            E.map((handler)=> handler.transaction("store1", "readwrite", { durability: "default" }))
+        )
+
+        const callback = (store: ExecutorParameterType<typeof executor>) => {            
+            return pipe(
+                TE.fromIO(() => store.add(data1_1)),
+                TE.tapIO(() => () => console.log('added data1_1')),
+                TE.chain((req) => req.cont(() => store.add(data1_2))),
+                TE.tapIO(() => () => console.log('1 cb req finished')),
+                TE.chain((req) => req.cont(() => store.get("hello"))),
+                TE.tapIO(() => () => console.log('2 cb req finished')),
+                TE.chainW((req) => req.result),
+                TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
+                TE.tapIO(() => () => console.log('callback finished'))
+            )()
+        }
+
+        const result = await pipe(
+            executor,
+            E.map((executor)=>executor(callback))
+        )                    
+
+        chai.assert.isTrue(E.isRight(result))        
+    })
     
+    it("exec multiple stores", async function() {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const handler = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value").handler(dbName)
+        const executor = pipe(
+            handler,
+            E.map((handler)=> handler.transaction(["store1", "store2"], "readwrite", { durability: "default" }))
+        )
+
+        const callback = (store: ExecutorParameterType<typeof executor>) => {
+            console.log("multiple stores callback started")
+            return pipe(
+                TE.fromIO(() => store["store1"].add(data1_1)),
+                TE.chain((req) => req.cont(() => store["store1"].add(data1_2))),
+                TE.chain((req) => req.cont(() => store["store2"].add(data2_1))),
+                TE.chain((req) => req.cont(() => store["store2"].get(100))),
+                TE.chain((req) => req.cont(() => store["store1"].get("hello"))),
+                TE.chainW((req) => req.result),
+                TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
+                TE.tapIO(() => () => console.log('callback finished'))
+            )()
+        }
+
+        const result = await pipe(
+            executor,
+            E.map((executor)=>executor(callback))
+        )
+
+        chai.assert.isTrue(E.isRight(result))        
+    }) 
+
     it("multiple stores", async function() {
         const title = this.test?.titlePath()?.join("::")
         console.log(title)
@@ -226,8 +292,7 @@ describe("TypedIDBHandler", function () {
         )()                    
 
         chai.assert.isTrue(E.isRight(result))        
-    }) 
-    
+    })     
 })
 
 describe("IDBFactory", ()=>{
