@@ -420,7 +420,7 @@ function reduceEither<E,A,B>(aryE:E.Either<E,A>[], f:(b:B, a:A)=>B, curE:E.Eithe
     }    
 }
 
-export type TypedIDBCallbackParameter<Handler, StoreNames, Mode extends "readonly"|"readwrite"> = 
+type CallbackParameterType<Handler, StoreNames, Mode extends "readonly"|"readwrite"> = 
     Handler extends TypedIDBHandler<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey> | 
                     E.Either<unknown, TypedIDBHandler<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>> | 
                     Promise<E.Either<unknown, TypedIDBHandler<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>>> |
@@ -435,7 +435,7 @@ export type TypedIDBCallbackParameter<Handler, StoreNames, Mode extends "readonl
         never
 
         
-export type ExecutorParameterType<Executor> = 
+export type TransactionParameterType<Executor> = 
     [ Executor ] extends [ E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown> | 
             Promise<E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown>> |
             TE.TaskEither<unknown, (cb:(p:infer P)=>unknown)=>unknown> ] ? P : never  
@@ -450,7 +450,7 @@ class TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         transaction:TypedIDBTransaction<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreNames extends (infer X)[] ? X : StoreNames>,    
         storeNames: StoreNames,
         _mode: Mode,
-    ): E.Either<DOMException, TypedIDBCallbackParameter<typeof this, StoreNames, Mode>> {
+    ): E.Either<DOMException, CallbackParameterType<typeof this, StoreNames, Mode>> {
         if (typeof storeNames === 'object' && Array.isArray(storeNames)) {
             return reduceEither(
                 RA.fromArray(storeNames).map((name:string)=>pipe(
@@ -470,21 +470,6 @@ class TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         }
     }
 
-    async call<const StoreNames extends (keyof T & string) | (keyof T & string)[], const Mode extends "readonly"|"readwrite">(        
-        storeNames: StoreNames,
-        mode: Mode,
-        callback: (param:TypedIDBCallbackParameter<typeof this, StoreNames, Mode>)=>unknown,
-        options: {
-            durability: "default"|"strict"|"relaxed"
-        }
-    ) {
-        return await pipe(
-            this.database.transaction(storeNames, mode, options),
-            TE.chainW((txn) => TE.fromEither(this.createCallbackParameter(txn, storeNames, mode))),
-            TE.map((param)=>callback(param))
-        )()
-    }
-
     transaction<const StoreNames extends (keyof T & string) | (keyof T & string)[], const Mode extends "readonly"|"readwrite">(        
         storeNames: StoreNames,
         mode: Mode,        
@@ -492,10 +477,14 @@ class TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
             durability: "default"|"strict"|"relaxed"
         }
     ) {        
-        return (callback:(param:TypedIDBCallbackParameter<typeof this, StoreNames, Mode>)=>unknown) => pipe(
+        return (callback:(param:CallbackParameterType<typeof this, StoreNames, Mode>)=>unknown) => pipe(
             this.database.transaction(storeNames, mode, options),
             TE.chainW((txn) => TE.fromEither(this.createCallbackParameter(txn, storeNames, mode))),
             TE.map((param)=>(callback(param)))
         )()        
     }
+
+    cleanup() {
+        this.database.close()
+    }    
 }
