@@ -175,11 +175,8 @@ describe("TypedIDBHandler", function () {
         const dbName: string = title || window.crypto.randomUUID()
 
         const builder = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value")
-        const handler = await builder.handler(dbName)
-        const executor = pipe(
-            handler,
-            E.map((handler)=> handler.transaction("store1", "readwrite", { durability: "default" }))
-        )
+        const handler = await builder.handler(dbName)  
+        const executor = E.ap(handler)(E.right((handler)=> handler.transaction("store1", "readwrite", { durability: "default" })))
 
         const callback = async (store: TransactionParameterType<typeof executor>) => {            
             const result = await pipe(
@@ -218,12 +215,10 @@ describe("TypedIDBHandler", function () {
         const dbName: string = title || window.crypto.randomUUID()
 
         const builder = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value")
-        const handler = await builder.handler(dbName)        
-        const executor = pipe(
-            handler,
-            E.map((handler)=> handler.transaction(["store1", "store2"], "readwrite", { durability: "default" }))
-        )
-
+        const handler = await builder.handler(dbName)    
+        const executor = E.ap(handler)(E.right((handler)=> handler.transaction(["store1", "store2"], "readwrite", { durability: "default" })))
+        
+        
         const callback = async (store: TransactionParameterType<typeof executor>) => {
             
             const result = await pipe(
