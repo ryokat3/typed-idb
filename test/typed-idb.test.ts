@@ -1,5 +1,5 @@
 // <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
-import { TypedIDBBuilder, TransactionParameterType } from "../src/typed-idb"
+import { TypedIDBBuilder, TRXParamType } from "../src/typed-idb"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
@@ -167,85 +167,119 @@ describe("TypedIDBObjectStore", function () {
 })
 
 
-describe("TypedIDBHandler", function () {    
+describe("TIDBDatabase", function () {    
 
-    it("exec single store", async function() {
+    it("single store", async function() {
         const title = this.test?.titlePath()?.join("::")
         console.log(title)
         const dbName: string = title || window.crypto.randomUUID()
 
         const builder = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value")
-        const handler = await builder.handler(dbName)  
-        const executor = E.ap(handler)(E.right((handler)=> handler.transaction("store1", "readwrite", { durability: "default" })))
+        const database = await builder.connect(dbName)  
+        
+        if (database !== undefined) {
+            const transaction = database.transaction("store1", "readwrite", { durability: "default" })
 
-        const callback = async (store: TransactionParameterType<typeof executor>) => {            
-            const result = await pipe(
-                TE.fromIO(() => store.add(data1_1)),
-                TE.tapIO(() => () => console.log('added data1_1')),
-                TE.chain((req) => req.cont(() => store.add(data1_2))),
-                TE.tapIO(() => () => console.log('1 cb req finished')),
-                TE.chain((req) => req.cont(() => store.get("hello"))),
-                TE.tapIO(() => () => console.log('2 cb req finished')),
-                TE.chainW((req) => req.result),
-                TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
-                TE.tapIO(() => () => console.log('callback finished'))
-            )()
+            const callback = async (store: TRXParamType<typeof transaction>) => {
+                const result = await pipe(
+                    TE.fromIO(() => store.add(data1_1)),
+                    TE.tapIO(() => () => console.log('added data1_1')),
+                    TE.chain((req) => req.cont(() => store.add(data1_2))),
+                    TE.tapIO(() => () => console.log('1 cb req finished')),
+                    TE.chain((req) => req.cont(() => store.get("hello"))),
+                    TE.tapIO(() => () => console.log('2 cb req finished')),
+                    TE.chainW((req) => req.result),
+                    TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
+                    TE.tapIO(() => () => console.log('callback finished')),
+                    TE.getOrElseW((_) => async () => undefined)
+                )()
 
-            chai.assert.isTrue(E.isRight(result))        
+                chai.assert.isDefined(result)
+
+                return result
+            }                   
+            const result = await transaction(callback)
+            console.log(`${title}: Result: ${JSON.stringify(result)}`)
             
-            return result            
+            database.cleanup()            
         }
-
-        const result = await pipe(
-            TE.Do,
-            TE.apS("builder", TE.of(builder)),
-            TE.apS("handler", TE.fromEither(handler)),
-            TE.apS("executor", TE.fromEither(executor)),
-            TE.tap(({executor})=>()=>executor(callback)),                        
-            TE.tapIO(({handler})=>()=>handler.cleanup()),
-            TE.tapIO(({builder})=>()=>builder.factory().deleteDatabase(dbName))
-        )()                    
-
-        chai.assert.isTrue(E.isRight(result))        
+        builder.factory().deleteDatabase(dbName)        
     })
     
-    it("exec multiple stores", async function() {
+    it("multiple stores", async function() {
         const title = this.test?.titlePath()?.join("::")
         console.log(title)
         const dbName: string = title || window.crypto.randomUUID()
 
         const builder = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value")
-        const handler = await builder.handler(dbName)    
-        const executor = E.ap(handler)(E.right((handler)=> handler.transaction(["store1", "store2"], "readwrite", { durability: "default" })))
+        const database = await builder.connect(dbName)            
         
-        
-        const callback = async (store: TransactionParameterType<typeof executor>) => {
+        if (database !== undefined) {
+            const transaction = database.transaction(["store1", "store2"], "readwrite", { durability: "default" })
+    
+            const callback = async (store: TRXParamType<typeof transaction>) => {
+
+                const result = await pipe(
+                    TE.fromIO(() => store["store1"].add(data1_1)),
+                    TE.tapIO(() => () => console.log('multi store started 2')),
+                    TE.chain((req) => req.cont(() => store["store1"].add(data1_2))),
+                    TE.tapIO(() => () => console.log('multi store started 3')),
+                    TE.chain((req) => req.cont(() => store["store2"].add(data2_1))),
+                    TE.tapIO(() => () => console.log('multi store started 4')),
+                    TE.chain((req) => req.cont(() => store["store2"].get(100))),
+                    TE.tapIO(() => () => console.log('multi store started 5')),
+                    TE.chain((req) => req.cont(() => store["store1"].get("hello"))),
+                    TE.tapIO(() => () => console.log('multi store started 6')),
+                    TE.chainW((req) => req.result),
+                    TE.tapIO(() => () => console.log('multi store started 7')),
+                    TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
+                    TE.tapIO((data) => () => console.log(`multi callback finished: ${JSON.stringify(data)}`)),
+                    TE.getOrElseW((_) => async () => undefined)
+                )()
+                chai.assert.isDefined(result)
+
+                return result
+            }
+            const result = await transaction(callback)
+            console.log(`${title}: Result: ${JSON.stringify(result)}`)
             
-            const result = await pipe(
-                TE.fromIO(() => store["store1"].add(data1_1)),
-                TE.chain((req) => req.cont(() => store["store1"].add(data1_2))),
-                TE.chain((req) => req.cont(() => store["store2"].add(data2_1))),
-                TE.chain((req) => req.cont(() => store["store2"].get(100))),
-                TE.chain((req) => req.cont(() => store["store1"].get("hello"))),
-                TE.chainW((req) => req.result),
-                TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
-                TE.tapIO(() => () => console.log('callback finished'))
-            )()
-
-            chai.assert.isTrue(E.isRight(result))
-
-            return result            
+            database.cleanup()            
         }
+        builder.factory().deleteDatabase(dbName)
+    })    
 
+    it("single store TE", async function() {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const builder = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value")        
+        
         const result = await pipe(
             TE.Do,
             TE.apS("builder", TE.of(builder)),
-            TE.apS("handler", TE.fromEither(handler)),
-            TE.apS("executor", TE.fromEither(executor)),
-            TE.tap(({executor})=>()=>executor(callback)),                        
-            TE.tapIO(({handler})=>()=>handler.cleanup()),
+            TE.bind("database", ({builder})=>builder.connectTE(dbName)),
+            TE.bind("trx", ({database})=>TE.of(database.transactionTE("store1", "readwrite", { durability: "default" }))),
+            TE.bind("result", ({ trx }) => trx(async (store) => {
+                const result = await pipe(
+                    TE.fromIO(() => store.add(data1_1)),
+                    TE.tapIO(() => () => console.log('added data1_1')),
+                    TE.chain((req) => req.cont(() => store.add(data1_2))),
+                    TE.tapIO(() => () => console.log('1 cb req finished')),
+                    TE.chain((req) => req.cont(() => store.get("hello"))),
+                    TE.tapIO(() => () => console.log('2 cb req finished')),
+                    TE.chainW((req) => req.result),
+                    TE.tapIO((data) => () => chai.assert.equal(data.key3, 5)),
+                    TE.tapIO(() => () => console.log('callback finished'))
+                )()
+                chai.assert.isTrue(E.isRight(result))
+                return result
+            })),
+            TE.tapIO(({result})=>async ()=>chai.assert.isTrue(E.isRight(await result))),
+            TE.tapIO(({result})=>async ()=>console.log(`result: ${JSON.stringify(await result)}`)),
+            TE.tapIO(({database})=>()=>database.cleanup()),
             TE.tapIO(({builder})=>()=>builder.factory().deleteDatabase(dbName))
-        )() 
+        )()                    
 
         chai.assert.isTrue(E.isRight(result))        
     })    

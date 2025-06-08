@@ -126,15 +126,22 @@ class TypedIDBDatabaseBuilder<
         return new TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(buildIDBDatabase(this.scheme))
     }
 
-    async handler(name:string, version:number|undefined = undefined) {
-        return await pipe(
+    connectTE(name:string, version:number|undefined = undefined) {
+        return pipe(
             TE.Do,
             TE.apS("factory", TE.of(this.factory())),
             TE.bind("req", ({ factory }) => factory.open(name, version)),                        
             TE.bindW("db", ({ req }) => req.result),
-            TE.map(({db})=> new TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db))
+            TE.map(({db})=> new TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db)),            
+        )
+    }
+
+    async connect(name:string, version:number|undefined = undefined) {
+        return await pipe(
+            this.connectTE(name, version),
+            TE.getOrElseW((_)=>async()=>undefined)
         )()
-    }    
+    }        
 }
 
 
@@ -420,11 +427,11 @@ function reduceEither<E,A,B>(aryE:E.Either<E,A>[], f:(b:B, a:A)=>B, curE:E.Eithe
     }    
 }
 
-type CallbackParameterType<Handler, StoreNames, Mode extends "readonly"|"readwrite"> = 
-    Handler extends TypedIDBHandler<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey> | 
-                    E.Either<unknown, TypedIDBHandler<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>> | 
-                    Promise<E.Either<unknown, TypedIDBHandler<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>>> |
-                    TE.TaskEither<unknown, TypedIDBHandler<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>> ?
+type CreateTRXParamType<Handler, StoreNames, Mode extends "readonly"|"readwrite"> = 
+    Handler extends TIDBDatabase<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey> | 
+                    E.Either<unknown, TIDBDatabase<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>> | 
+                    Promise<E.Either<unknown, TIDBDatabase<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>>> |
+                    TE.TaskEither<unknown, TIDBDatabase<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>> ?
         StoreNames extends (keyof T & string) | (keyof T & string)[] ?
             StoreNames extends (infer X)[] ? 
                 Mode extends "readonly" ?
@@ -435,12 +442,13 @@ type CallbackParameterType<Handler, StoreNames, Mode extends "readonly"|"readwri
         never
 
         
-export type TransactionParameterType<Executor> = 
-    [ Executor ] extends [ E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown> | 
+export type TRXParamType<TRX> = 
+    [ TRX extends null|undefined ? never : TRX ] extends [ (cb:(p:infer P)=>unknown)=>unknown |
+            E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown> | 
             Promise<E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown>> |
             TE.TaskEither<unknown, (cb:(p:infer P)=>unknown)=>unknown> ] ? P : never  
 
-class TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
+class TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
 
     constructor(   
         private readonly database: TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>,
@@ -450,7 +458,7 @@ class TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         transaction:TypedIDBTransaction<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreNames extends (infer X)[] ? X : StoreNames>,    
         storeNames: StoreNames,
         _mode: Mode,
-    ): E.Either<DOMException, CallbackParameterType<typeof this, StoreNames, Mode>> {
+    ): E.Either<DOMException, CreateTRXParamType<typeof this, StoreNames, Mode>> {
         if (typeof storeNames === 'object' && Array.isArray(storeNames)) {
             return reduceEither(
                 RA.fromArray(storeNames).map((name:string)=>pipe(
@@ -470,18 +478,37 @@ class TypedIDBHandler<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         }
     }
 
-    transaction<const StoreNames extends (keyof T & string) | (keyof T & string)[], const Mode extends "readonly"|"readwrite">(        
+    transactionTE<const StoreNames extends (keyof T & string) | (keyof T & string)[], const Mode extends "readonly"|"readwrite">(        
         storeNames: StoreNames,
         mode: Mode,        
         options: {
             durability: "default"|"strict"|"relaxed"
         }
     ) {        
-        return (callback:(param:CallbackParameterType<typeof this, StoreNames, Mode>)=>unknown) => pipe(
+        return <const R>(callback:(param:CreateTRXParamType<typeof this, StoreNames, Mode>)=>R):TE.TaskEither<unknown, R> => pipe(
             this.database.transaction(storeNames, mode, options),
             TE.chainW((txn) => TE.fromEither(this.createCallbackParameter(txn, storeNames, mode))),
             TE.map((param)=>(callback(param)))
-        )()        
+        )      
+    }
+
+    transaction<const StoreNames extends (keyof T & string) | (keyof T & string)[], const Mode extends "readonly"|"readwrite">(        
+        storeNames: StoreNames,
+        mode: Mode,        
+        options: {
+            durability: "default"|"strict"|"relaxed"
+        },
+        errorVal = undefined
+    ) {
+        return <const R>(callback:(param:CreateTRXParamType<typeof this, StoreNames, Mode>)=>R):Promise<R|typeof errorVal> => {
+            return pipe(
+                this.database.transaction(storeNames, mode, options),
+                TE.chainW((txn) => TE.fromEither(this.createCallbackParameter(txn, storeNames, mode))),
+                TE.map((param) => callback(param)),
+                TE.tapIO((data)=>()=>console.log(`out result: ${JSON.stringify(data)}`)),
+                TE.getOrElseW((_) => async () => errorVal)
+            )()          
+        }
     }
 
     cleanup() {
