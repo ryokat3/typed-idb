@@ -3,7 +3,7 @@ import * as TE from "fp-ts/TaskEither"
 import * as RA from "fp-ts/ReadonlyArray"
 import { pipe, identity } from "fp-ts/function"
 import * as OC from "./OnCallback"
-import { KeyPath } from "boost-ts.types"
+import { KeyPath } from "boost-ts.types/KeyPath"
 import { AppError } from "./AppError"
 
 

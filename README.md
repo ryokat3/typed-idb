@@ -6,8 +6,7 @@
 # typed-idb
 
 An indexed DB library with strict parameter narrowing
-- 
-- ddd
+
 
 ## Feature
 
