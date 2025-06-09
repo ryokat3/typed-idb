@@ -1,5 +1,6 @@
 // <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
-import { TypedIDBBuilder, TRXParamType, chainWithContext2 } from "../src/typed-idb"
+import { TypedIDBBuilder, TypedIDBRequest, TransactionStoreType } from "../src/typed-idb"
+import { SRTE_chainWithContext } from "../src/utils/fp-ts-lib"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
@@ -7,8 +8,17 @@ import * as SRTE from "fp-ts/StateReaderTaskEither"
 import { pipe } from "fp-ts/function"
 
 
-// import comments from "./comments.json"
-// import photos from "./photos.json"
+import comments from "./comments.json"
+
+type CommentsType = {
+    "store1": {
+        postId: number;
+        id: number;
+        name: string;
+        email: string;
+        body: string;
+    }
+} 
 
 type IdbData = {
     "store1": {
@@ -182,7 +192,7 @@ describe("TIDBDatabase", function () {
         if (database !== undefined) {
             const transaction = database.transaction("store1", "readwrite", { durability: "default" })
 
-            const callback = async (store: TRXParamType<typeof transaction>) => {
+            const callback = async (store: TransactionStoreType<typeof transaction>) => {
                 const result = await pipe(
                     TE.fromIO(() => store.add(data1_1)),
                     TE.tapIO(() => () => console.log('added data1_1')),
@@ -219,7 +229,7 @@ describe("TIDBDatabase", function () {
         if (database !== undefined) {
             const transaction = database.transaction(["store1", "store2"], "readwrite", { durability: "default" })
     
-            const callback = async (store: TRXParamType<typeof transaction>) => {
+            const callback = async (store: TransactionStoreType<typeof transaction>) => {
 
                 const result = await pipe(
                     TE.fromIO(() => store["store1"].add(data1_1)),
@@ -301,21 +311,56 @@ describe("TIDBDatabase", function () {
             TE.bind("result", ({ trx }) => trx(async (store) => {
                 
                 const req0 = store.add(data1_1)
-                const result = await pipe(                    
-                    SRTE.of<typeof req0, typeof store, never, unknown>((_r:typeof req0)=>(_s:typeof store)=>TE.fromIO(()=>console.log("hello"))),
-                    chainWithContext2((_, store, req)=>req.cont2(()=>store.add(data1_2))),  
-                    chainWithContext2((_, store, req)=>req.cont2(()=>store.get("hello"))),
-                    chainWithContext2((_, _store, req)=>req.cont2(()=>req)),
+                const result = await pipe(                                        
+                    SRTE.of<TypedIDBRequest<unknown>, typeof store, never, unknown>((_r:typeof req0)=>(_s:typeof store)=>TE.of(undefined)),
+                    SRTE_chainWithContext((_, store, req)=>req.cont2(()=>store.add(data1_2))),  
+                    SRTE.tapIO((data)=>()=>console.log(`SRTE out 1: ${JSON.stringify(data)}`)),
+                    SRTE_chainWithContext((_, store, req)=>req.cont2(()=>store.get("hello"))),
+                    SRTE.tapIO((data)=>()=>console.log(`SRTE out 2: ${JSON.stringify(data)}`)),
+                    SRTE_chainWithContext((_, _store, req)=>req.cont2(()=>req)),
                     SRTE.tapIO((data)=>()=>console.log(`SRTE out: ${JSON.stringify(data)}`))
                 )(req0)(store)()
 
                 return result                
-            }))
+            })),
+            TE.tapIO(({result})=>async ()=>console.log(`result from outer loop: ${JSON.stringify(await result)}`)),
+            TE.tapIO(({database})=>()=>database.cleanup()),
+            TE.tapIO(({builder})=>()=>builder.factory().deleteDatabase(dbName))
         )()                    
 
         chai.assert.isTrue(E.isRight(result))        
     })    
+
+    it("addArray", async function () {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+
+        const builder = await TypedIDBBuilder<CommentsType>().objectStore("store1", "id")
+
+        const result = await pipe(
+            TE.Do,
+            TE.apS("builder", TE.of(builder)),
+            TE.bind("database", ({ builder }) => builder.connectTE(dbName)),
+            TE.bind("trx", ({ database }) => TE.of(database.transactionTE("store1", "readwrite", { durability: "default" }))),
+            TE.bind("result", ({ trx }) => trx(async (store) => {
+                const result = await pipe(    
+                    store.addArray(comments),
+                    TE.chain((req) => req.cont(() => store.get(453))),
+                    TE.chainW((req) => req.result)
+                )()
+                return result                    
+            })),
+            TE.tapIO(({ result }) => async () => console.log(`${title}: result from outer loop: ${JSON.stringify(await result)}`)),
+            TE.tapIO(({ database }) => () => database.cleanup()),
+            TE.tapIO(({ builder }) => () => builder.factory().deleteDatabase(dbName))
+        )()
+
+        chai.assert.isTrue(E.isRight(result))
+    })
 })
+
 
 describe("IDBFactory", ()=>{
     describe("#open()", ()=>{

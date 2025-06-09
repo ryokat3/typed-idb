@@ -25,3 +25,5 @@ An indexed DB library with strict parameter narrowing
 # Resources / References
 
 - [{JSON}Placeholder](https://jsonplaceholder.typicode.com/) from which fake JSON test data is downloaded
+- [fp-ts](https://github.com/gcanti/fp-ts/)
+- [fp-ts chain example for StateReaderEitherTask](https://github.com/gcanti/fp-ts/issues/1183)

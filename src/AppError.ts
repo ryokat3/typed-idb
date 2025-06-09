@@ -1,4 +1,4 @@
-import { generateTypedError } from "./TypedError"
+import { generateTypedError } from "./utils/TypedError"
 
 type AppErrorType = {
     "All events not covered": string[],

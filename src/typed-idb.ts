@@ -1,11 +1,11 @@
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
-import * as SRTE from "fp-ts/StateReaderTaskEither"
 import * as RA from "fp-ts/ReadonlyArray"
 import { pipe, identity } from "fp-ts/function"
-import * as OC from "./OnCallback"
 import { KeyPath } from "boost-ts.types/KeyPath"
 import { AppError } from "./AppError"
+import * as OC from "./utils/OnCallback"
+import { EA_reduce } from "./utils/fp-ts-lib"
 
 
 ////////////////////////////////////////////////////////////////
@@ -313,7 +313,7 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
     }    
 }
 
-class TypedIDBRequest<ResultType> {
+export class TypedIDBRequest<ResultType> {
 
     constructor(
         private readonly request: IDBRequest,        
@@ -419,27 +419,25 @@ class TypedIDBObjectStore<T, _KP, StoreKeyValue, _IndexKeyValue, OutOfLineKey, S
     add(value:T[StoreName], key:any=undefined) {                
         return new TypedIDBRequest((key === undefined) ? this.store.add(value) : this.store.add(value, key), identity)
     }
+
+    addArray(data:T[StoreName][]) {
+        if (data.length === 0) {
+            return TE.left("No data")
+        }        
+        return RA.reduce(TE.of(this.add(data[0])), (req: TE.TaskEither<unknown, TypedIDBRequest<unknown>>, da: T[StoreName]) => pipe(
+            req,
+            TE.chain((req1) => req1.cont(() => this.add(da)))            
+        ))(data.slice(1))        
+    }
 }
 
 ////////////////////////////////////////////////////////////////
 // Typed IDB 
 ////////////////////////////////////////////////////////////////
 
-function reduceEither<E,A,B>(aryE:E.Either<E,A>[], f:(b:B, a:A)=>B, curE:E.Either<E,B>):E.Either<E,B> {
-    if (aryE.length === 0) {
-        return curE
-    }
-    else {
-        return pipe(
-            E.Do,
-            E.bind("acc", ()=>curE),
-            E.bind("cur", ()=>aryE[0]),
-            E.chain(({acc, cur})=>reduceEither(aryE.slice(1), f, E.right(f(acc, cur))))
-        )      
-    }    
-}
 
-type CreateTRXParamType<Handler, StoreNames, Mode extends "readonly"|"readwrite"> = 
+
+type CreateTransactionStoreType<Handler, StoreNames, Mode extends "readonly"|"readwrite"> = 
     Handler extends TIDBDatabase<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey> | 
                     E.Either<unknown, TIDBDatabase<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>> | 
                     Promise<E.Either<unknown, TIDBDatabase<infer T, infer KP, infer StoreKeyValue, infer IndexKeyValue, infer OutOfLineKey>>> |
@@ -454,7 +452,7 @@ type CreateTRXParamType<Handler, StoreNames, Mode extends "readonly"|"readwrite"
         never
 
         
-export type TRXParamType<TRX> = 
+export type TransactionStoreType<TRX> = 
     [ TRX extends null|undefined ? never : TRX ] extends [ (cb:(p:infer P)=>unknown)=>unknown |
             E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown> | 
             Promise<E.Either<unknown, (cb:(p:infer P)=>unknown)=>unknown>> |
@@ -470,9 +468,9 @@ class TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         transaction:TypedIDBTransaction<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreNames extends (infer X)[] ? X : StoreNames>,    
         storeNames: StoreNames,
         _mode: Mode,
-    ): E.Either<DOMException, CreateTRXParamType<typeof this, StoreNames, Mode>> {
+    ): E.Either<DOMException, CreateTransactionStoreType<typeof this, StoreNames, Mode>> {
         if (typeof storeNames === 'object' && Array.isArray(storeNames)) {
-            return reduceEither(
+            return EA_reduce(
                 RA.fromArray(storeNames).map((name:string)=>pipe(
                     transaction.objectStore(name as any),
                     E.map((store)=>[name, store] as const)                
@@ -497,7 +495,7 @@ class TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
             durability: "default"|"strict"|"relaxed"
         }
     ) {        
-        return <const R>(callback:(param:CreateTRXParamType<typeof this, StoreNames, Mode>)=>R):TE.TaskEither<unknown, R> => pipe(
+        return <const R>(callback:(param:CreateTransactionStoreType<typeof this, StoreNames, Mode>)=>R):TE.TaskEither<unknown, R> => pipe(
             this.database.transaction(storeNames, mode, options),
             TE.chainW((txn) => TE.fromEither(this.createCallbackParameter(txn, storeNames, mode))),
             TE.map((param)=>(callback(param)))
@@ -512,7 +510,7 @@ class TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         },
         errorVal = undefined
     ) {
-        return <const R>(callback:(param:CreateTRXParamType<typeof this, StoreNames, Mode>)=>R):Promise<R|typeof errorVal> => {
+        return <const R>(callback:(param:CreateTransactionStoreType<typeof this, StoreNames, Mode>)=>R):Promise<R|typeof errorVal> => {
             return pipe(
                 this.database.transaction(storeNames, mode, options),
                 TE.chainW((txn) => TE.fromEither(this.createCallbackParameter(txn, storeNames, mode))),
@@ -528,24 +526,3 @@ class TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
     }    
 }
 
-
-export const chainWithContext = <S, R, E, A, B>(f: (a: A, r: R, s: S) => TE.TaskEither<E, B>) => (
-  ma: SRTE.StateReaderTaskEither<S, R, E, A>
-): SRTE.StateReaderTaskEither<S, R, E, B> => (s1) => (r) =>
-  pipe(
-    ma(s1)(r),
-    TE.chain(([a, s2]) =>
-      pipe(
-        f(a, r, s2),
-        TE.map((b) => [b, s2])
-      )
-    )
-  )
-
-export const chainWithContext2 = <S, R, E, A, B>(f: (a: A, r: R, s: S) => TE.TaskEither<E, [B, S]>) => (
-  ma: SRTE.StateReaderTaskEither<S, R, E, A>
-): SRTE.StateReaderTaskEither<S, R, E, B> => (s1) => (r) =>
-  pipe(
-    ma(s1)(r),
-    TE.chain(([a, s2]) => f(a, r, s2))
-  )

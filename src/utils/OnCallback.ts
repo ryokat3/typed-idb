@@ -1,7 +1,7 @@
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
 import { identity } from "fp-ts/lib/function"
-import { AppError } from "./AppError"
+import { AppError } from "../AppError"
 
 
 export const successCallback:unique symbol = Symbol('onCallbackSuccess')
