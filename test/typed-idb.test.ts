@@ -1,9 +1,11 @@
 // <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
-import { TypedIDBBuilder, TRXParamType } from "../src/typed-idb"
+import { TypedIDBBuilder, TRXParamType, chainWithContext2 } from "../src/typed-idb"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
+import * as SRTE from "fp-ts/StateReaderTaskEither"
 import { pipe } from "fp-ts/function"
+
 
 // import comments from "./comments.json"
 // import photos from "./photos.json"
@@ -279,6 +281,36 @@ describe("TIDBDatabase", function () {
             TE.tapIO(({result})=>async ()=>console.log(`result: ${JSON.stringify(await result)}`)),
             TE.tapIO(({database})=>()=>database.cleanup()),
             TE.tapIO(({builder})=>()=>builder.factory().deleteDatabase(dbName))
+        )()                    
+
+        chai.assert.isTrue(E.isRight(result))        
+    })    
+
+    it("single store SRTE", async function() {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const builder = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value")        
+        
+        const result = await pipe(
+            TE.Do,
+            TE.apS("builder", TE.of(builder)),
+            TE.bind("database", ({builder})=>builder.connectTE(dbName)),
+            TE.bind("trx", ({database})=>TE.of(database.transactionTE("store1", "readwrite", { durability: "default" }))),
+            TE.bind("result", ({ trx }) => trx(async (store) => {
+                
+                const req0 = store.add(data1_1)
+                const result = await pipe(                    
+                    SRTE.of<typeof req0, typeof store, never, unknown>((_r:typeof req0)=>(_s:typeof store)=>TE.fromIO(()=>console.log("hello"))),
+                    chainWithContext2((_, store, req)=>req.cont2(()=>store.add(data1_2))),  
+                    chainWithContext2((_, store, req)=>req.cont2(()=>store.get("hello"))),
+                    chainWithContext2((_, _store, req)=>req.cont2(()=>req)),
+                    SRTE.tapIO((data)=>()=>console.log(`SRTE out: ${JSON.stringify(data)}`))
+                )(req0)(store)()
+
+                return result                
+            }))
         )()                    
 
         chai.assert.isTrue(E.isRight(result))        

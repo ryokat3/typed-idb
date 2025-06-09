@@ -1,5 +1,6 @@
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
+import * as SRTE from "fp-ts/StateReaderTaskEither"
 import * as RA from "fp-ts/ReadonlyArray"
 import { pipe, identity } from "fp-ts/function"
 import * as OC from "./OnCallback"
@@ -328,7 +329,18 @@ class TypedIDBRequest<ResultType> {
                 reject(e)
             }
         }), identity)
-    }  
+    }
+
+    cont2<T>(f: (r: ResultType) => TypedIDBRequest<T>):TE.TaskEither<unknown, [ResultType, TypedIDBRequest<T>]> {
+        return TE.tryCatch<unknown, [ResultType, TypedIDBRequest<T>]>(()=>new Promise((resolv, reject) => {
+            this.request.onsuccess = (_e: Event) => {                                
+                resolv([this.resultWrapper(this.request.result), f(this.request.result)] as const)                   
+            }
+            this.request.onerror = (e:Event) => {
+                reject(e)
+            }
+        }), identity)
+    }
 
     get result() {
         return pipe(
@@ -402,10 +414,10 @@ class TypedIDBObjectStore<T, _KP, StoreKeyValue, _IndexKeyValue, OutOfLineKey, S
         super(store)
     }
     
-    add(value:T[StoreName]): TypedIDBRequest<void>    
-    add(value:T[StoreName], key:StoreName extends keyof OutOfLineKey ? OutOfLineKey[StoreName] extends true ? IDBValidKey : never : never): TypedIDBRequest<void>
+    add(value:T[StoreName]): TypedIDBRequest<unknown>    
+    add(value:T[StoreName], key:StoreName extends keyof OutOfLineKey ? OutOfLineKey[StoreName] extends true ? IDBValidKey : never : never): TypedIDBRequest<unknown>
     add(value:T[StoreName], key:any=undefined) {                
-        return new TypedIDBRequest((key === undefined) ? this.store.add(value) : this.store.add(value, key), identity as any)
+        return new TypedIDBRequest((key === undefined) ? this.store.add(value) : this.store.add(value, key), identity)
     }
 }
 
@@ -515,3 +527,25 @@ class TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         this.database.close()
     }    
 }
+
+
+export const chainWithContext = <S, R, E, A, B>(f: (a: A, r: R, s: S) => TE.TaskEither<E, B>) => (
+  ma: SRTE.StateReaderTaskEither<S, R, E, A>
+): SRTE.StateReaderTaskEither<S, R, E, B> => (s1) => (r) =>
+  pipe(
+    ma(s1)(r),
+    TE.chain(([a, s2]) =>
+      pipe(
+        f(a, r, s2),
+        TE.map((b) => [b, s2])
+      )
+    )
+  )
+
+export const chainWithContext2 = <S, R, E, A, B>(f: (a: A, r: R, s: S) => TE.TaskEither<E, [B, S]>) => (
+  ma: SRTE.StateReaderTaskEither<S, R, E, A>
+): SRTE.StateReaderTaskEither<S, R, E, B> => (s1) => (r) =>
+  pipe(
+    ma(s1)(r),
+    TE.chain(([a, s2]) => f(a, r, s2))
+  )
