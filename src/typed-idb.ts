@@ -1,6 +1,7 @@
 import * as E from "fp-ts/Either"
 import * as TE from "fp-ts/TaskEither"
 import * as RA from "fp-ts/ReadonlyArray"
+import * as SRTE from "fp-ts/StateReaderTaskEither"
 import { pipe, identity } from "fp-ts/function"
 import { KeyPath } from "boost-ts.types/KeyPath"
 import { AppError } from "./AppError"
@@ -342,6 +343,41 @@ export class TypedIDBRequest<ResultType> {
         }), identity)
     }
 
+    cont3<T,E,B>(conv:(result:ResultType)=>B, f: (r: B) => TypedIDBRequest<T>):TE.TaskEither<E, [B, TypedIDBRequest<T>]> {
+        return TE.tryCatch<E, [B, TypedIDBRequest<T>]>(()=>new Promise((resolv, reject) => {
+            this.request.onsuccess = (_e: Event) => {  
+                const b:B = conv(this.resultWrapper(this.request.result))
+                resolv([b, f(b)] as const)                   
+            }
+            this.request.onerror = (e:Event) => {
+                reject(e)
+            }
+        }), identity as ()=>E)
+    }
+    cont4<B>(fn: ()=>TypedIDBRequest<B>) {
+        console.log("CONT4")    
+        return TE.tryCatch<[Event,string], [TE.TaskEither<[Event,string],B>, typeof this]>(()=>new Promise((resolv, reject) => {
+            this.request.addEventListener("success", (_ev:Event)=>{
+                console.log("in EVENT callback")        
+                const req = fn()                       
+                resolv([req.result, this] as const) 
+            })    
+            this.request.onerror = (e:Event) => {
+                reject(e)
+            }
+        }), identity as ()=>any)
+    }
+    cont5<T,E>(f: (r: ResultType) => TypedIDBRequest<T>):TE.TaskEither<E, [ResultType, TypedIDBRequest<T>]> {
+        return TE.tryCatch<E, [ResultType, TypedIDBRequest<T>]>(()=>new Promise((resolv, reject) => {
+            this.request.onsuccess = (_e: Event) => {  
+                const b = this.resultWrapper(this.request.result)
+                resolv([b, f(b)] as const)                   
+            }
+            this.request.onerror = (e:Event) => {
+                reject(e)
+            }
+        }), identity as ()=>E)
+    }
     get result() {
         return pipe(
             this.request.readyState === "done" ? TE.right(this.request) : pipe(OC.taskify(this.request, OC.defaultSet), TE.map((_)=>this.request)),
@@ -414,8 +450,8 @@ class TypedIDBObjectStore<T, _KP, StoreKeyValue, _IndexKeyValue, OutOfLineKey, S
         super(store)
     }
     
-    add(value:T[StoreName]): TypedIDBRequest<unknown>    
-    add(value:T[StoreName], key:StoreName extends keyof OutOfLineKey ? OutOfLineKey[StoreName] extends true ? IDBValidKey : never : never): TypedIDBRequest<unknown>
+    add(value:T[StoreName]): TypedIDBRequest<StoreKeyValue[StoreName & keyof StoreKeyValue]>    
+    add(value:T[StoreName], key:StoreName extends keyof OutOfLineKey ? OutOfLineKey[StoreName] extends true ? IDBValidKey : never : never): TypedIDBRequest<StoreKeyValue[StoreName & keyof StoreKeyValue]>
     add(value:T[StoreName], key:any=undefined) {                
         return new TypedIDBRequest((key === undefined) ? this.store.add(value) : this.store.add(value, key), identity)
     }
@@ -526,3 +562,27 @@ class TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
     }    
 }
 
+export const TypedIDBRequestChain = <S, R, E, A, B, S2>(conv:(a:S)=>B, nextReq: (b: B, r: R) => TypedIDBRequest<S2>) => (
+    ma: SRTE.StateReaderTaskEither<TypedIDBRequest<S>, R, E, A>
+): SRTE.StateReaderTaskEither<TypedIDBRequest<S2>, R, E, B> => (s1) => (r) =>
+    pipe(
+        ma(s1 as any)(r),        
+        TE.chain(([_a, req]) => req.cont3(conv, (b:B)=>nextReq(b, r)))
+    )
+
+
+export const TypedIDBRequestChain2 = <S, R, E, A, B>(req: (a: A, r: R) => TypedIDBRequest<B>) => (
+    ma: SRTE.StateReaderTaskEither<TypedIDBRequest<S>, R, E, A>
+): SRTE.StateReaderTaskEither<TypedIDBRequest<S>, R, unknown, TE.TaskEither<[Event, string], B>> => (s1) => (r) =>
+    pipe(
+        ma(s1)(r),        
+        TE.chainW(([a, _s2]) => s1.cont4(()=>req(a, r)))
+    )
+
+export const TypedIDBRequestChain3 = <S, R, E, A, S2>(nextReq: (b: S, r: R) => TypedIDBRequest<S2>) => (
+    ma: SRTE.StateReaderTaskEither<TypedIDBRequest<S>, R, E, A>
+): SRTE.StateReaderTaskEither<TypedIDBRequest<S2>, R, E, S> => (s1) => (r) =>
+    pipe(
+        ma(s1 as any)(r),        
+        TE.chain(([_a, req]) => req.cont5((b:S)=>nextReq(b, r)))
+    )

@@ -1,5 +1,5 @@
 // <!-- vim: set ts=4 et sw=4 sts=4 fileencoding=utf-8 fileformat=unix: -->
-import { TypedIDBBuilder, TypedIDBRequest, TransactionStoreType } from "../src/typed-idb"
+import { TypedIDBBuilder, /* TypedIDBRequest, */ TransactionStoreType, TypedIDBRequestChain3 } from "../src/typed-idb"
 import { SRTE_chainWithContext } from "../src/utils/fp-ts-lib"
 import * as chai from "chai"
 import * as E from "fp-ts/Either"
@@ -11,7 +11,7 @@ import { pipe } from "fp-ts/function"
 import comments from "./comments.json"
 
 type CommentsType = {
-    "store1": {
+    "comments": {
         postId: number;
         id: number;
         name: string;
@@ -312,14 +312,16 @@ describe("TIDBDatabase", function () {
                 
                 const req0 = store.add(data1_1)
                 const result = await pipe(                                        
-                    SRTE.of<TypedIDBRequest<unknown>, typeof store, never, unknown>((_r:typeof req0)=>(_s:typeof store)=>TE.of(undefined)),
-                    SRTE_chainWithContext((_, store, req)=>req.cont2(()=>store.add(data1_2))),  
+                    // SRTE.of<typeof req0, typeof store, unknown, unknown>((_r:typeof req0)=>(_s:typeof store)=>TE.of(undefined)),
+                    // SRTE.of<TypedIDBRequest<void>, typeof store, unknown, unknown>(undefined),
+                    SRTE.of<typeof req0, typeof store, unknown, unknown>(undefined),
+                    SRTE_chainWithContext((_a, store, req)=>req.cont2(()=>store.add(data1_2))),  
                     SRTE.tapIO((data)=>()=>console.log(`SRTE out 1: ${JSON.stringify(data)}`)),
-                    SRTE_chainWithContext((_, store, req)=>req.cont2(()=>store.get("hello"))),
+                    SRTE_chainWithContext((_a, store, req)=>req.cont2(()=>store.get("hello"))),
                     SRTE.tapIO((data)=>()=>console.log(`SRTE out 2: ${JSON.stringify(data)}`)),
-                    SRTE_chainWithContext((_, _store, req)=>req.cont2(()=>req)),
+                    SRTE_chainWithContext((_a, _store, req)=>req.cont2(()=>req)),
                     SRTE.tapIO((data)=>()=>console.log(`SRTE out: ${JSON.stringify(data)}`))
-                )(req0)(store)()
+                )(req0 as any)(store)()
 
                 return result                
             })),
@@ -331,19 +333,55 @@ describe("TIDBDatabase", function () {
         chai.assert.isTrue(E.isRight(result))        
     })    
 
+    it("TypedIDBRequestChain", async function() {
+        const title = this.test?.titlePath()?.join("::")
+        console.log(title)
+        const dbName: string = title || window.crypto.randomUUID()
+
+        const builder = await TypedIDBBuilder<IdbData>().objectStore("store1", "key1.key2").objectStore("store2", "value")        
+        
+        const result = await pipe(
+            TE.Do,
+            TE.apS("builder", TE.of(builder)),
+            TE.bind("database", ({builder})=>builder.connectTE(dbName)),
+            TE.bind("trx", ({database})=>TE.of(database.transactionTE("store1", "readwrite", { durability: "default" }))),
+            TE.bind("result", ({ trx }) => trx(async (store) => {
+                
+                const req0 = store.add(data1_1)
+                const result = await pipe(                                                            
+                    SRTE.of<typeof req0, typeof store, unknown, unknown>(undefined), 
+                    SRTE.tapIO((data)=>()=>console.log(`chain out 1: ${JSON.stringify(data)}`)),                   
+                    TypedIDBRequestChain3((a, store)=>{ console.log(`adding data1_2: ${a}`); return store.add(data1_2) }),                                        
+                    SRTE.tapIO((data)=>()=>console.log(`chain out 2: ${JSON.stringify(data)}`)),                   
+                    TypedIDBRequestChain3((_, store)=>store.get("hello")),
+                    SRTE.tapIO((data)=>()=>console.log(`chain out 3: ${JSON.stringify(data)}`)),                   
+                    TypedIDBRequestChain3((a, _store)=>{ console.log(`last nop: ${JSON.stringify(a)}`); return req0 }),
+                    SRTE.tapIO((data)=>()=>console.log(`chain out 4: ${JSON.stringify(data)}`)),                   
+                )(req0)(store)()
+
+                return result                
+            })),
+            TE.tapIO(({result})=>async ()=>console.log(`result from outer loop: ${JSON.stringify(await result)}`)),
+            TE.tapIO(({database})=>()=>database.cleanup()),
+            TE.tapIO(({builder})=>()=>builder.factory().deleteDatabase(dbName))
+        )()                    
+
+        chai.assert.isTrue(E.isRight(result))        
+    })  
+
     it("addArray", async function () {
         const title = this.test?.titlePath()?.join("::")
         console.log(title)
         const dbName: string = title || window.crypto.randomUUID()
 
 
-        const builder = await TypedIDBBuilder<CommentsType>().objectStore("store1", "id")
+        const builder = await TypedIDBBuilder<CommentsType>().objectStore("comments", "id")
 
         const result = await pipe(
             TE.Do,
             TE.apS("builder", TE.of(builder)),
             TE.bind("database", ({ builder }) => builder.connectTE(dbName)),
-            TE.bind("trx", ({ database }) => TE.of(database.transactionTE("store1", "readwrite", { durability: "default" }))),
+            TE.bind("trx", ({ database }) => TE.of(database.transactionTE("comments", "readwrite", { durability: "default" }))),
             TE.bind("result", ({ trx }) => trx(async (store) => {
                 const result = await pipe(    
                     store.addArray(comments),

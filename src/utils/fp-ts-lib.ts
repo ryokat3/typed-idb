@@ -18,10 +18,18 @@ export function EA_reduce<E, A, B>(aryE: E.Either<E, A>[], f: (b: B, a: A) => B,
 }
 
 
-export const SRTE_chainWithContext = <S, R, E, A, B>(f: (a: A, r: R, s: S) => TE.TaskEither<E, [B, S]>) => (
+export const SRTE_chainWithContext_orig = <S, R, E, A, B>(f: (a: A, r: R, s: S) => TE.TaskEither<E, [B, S]>) => (
     ma: SRTE.StateReaderTaskEither<S, R, E, A>
 ): SRTE.StateReaderTaskEither<S, R, E, B> => (s1) => (r) =>
     pipe(
         ma(s1)(r),
         TE.chain(([a, s2]) => f(a, r, s2))
-    )  
+    )
+
+export const SRTE_chainWithContext = <S, R, E, A, B, S2>(f: (a: A, r: R, s: S) => TE.TaskEither<E, [B, S2]>) => (
+    ma: SRTE.StateReaderTaskEither<S, R, E, A>
+): SRTE.StateReaderTaskEither<S2, R, E, B> => (s1) => (r) =>
+    pipe(
+        ma(s1 as any)(r),
+        TE.chain(([a, s2]) => f(a, r, s2))
+    )
