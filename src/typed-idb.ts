@@ -288,7 +288,8 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
                 onsuccess: (_e)=>req,           
                 onblocked: OC.failureCallback
             })),                        
-            TE.map((newReq)=>new TypedIDBRequest(newReq, (db)=>new TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db)))                        
+            // TE.map((newReq)=>new TypedIDBRequest(newReq, (db)=>new TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>(db)))                        
+            TE.map((newReq)=>new TypedIDBRequest<TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey>>(newReq, TypedIDBDatabase))                        
         )      
     }
 
@@ -314,14 +315,21 @@ class TypedIDBFactory<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
     }    
 }
 
-export class TypedIDBRequest<ResultType> {
+export class TypedIDBRequest<WrapperType> {
 
     constructor(
         private readonly request: IDBRequest,        
-        private readonly resultWrapper: (result: any) => ResultType
+        // private readonly resultWrapper: (result: any) => ResultType
+        private readonly wrapper: {
+            new (result: any):WrapperType
+        } | undefined = undefined
     ) {}
 
-    cont<T>(f: (r: ResultType) => TypedIDBRequest<T>){
+    private wrap():WrapperType {
+        return this.wrapper !== undefined ? new this.wrapper(this.request.result) : this.request.result
+    }
+
+    cont<T>(f: (r: WrapperType) => TypedIDBRequest<T>){
         return TE.tryCatch<unknown, TypedIDBRequest<T>>(()=>new Promise((resolv, reject) => {
             this.request.onsuccess = (_e: Event) => {
                 resolv(f(this.request.result))
@@ -332,10 +340,10 @@ export class TypedIDBRequest<ResultType> {
         }), identity)
     }
 
-    cont2<T>(f: (r: ResultType) => TypedIDBRequest<T>):TE.TaskEither<unknown, [ResultType, TypedIDBRequest<T>]> {
-        return TE.tryCatch<unknown, [ResultType, TypedIDBRequest<T>]>(()=>new Promise((resolv, reject) => {
+    cont2<T>(f: (r: WrapperType) => TypedIDBRequest<T>):TE.TaskEither<unknown, [WrapperType, TypedIDBRequest<T>]> {
+        return TE.tryCatch<unknown, [WrapperType, TypedIDBRequest<T>]>(()=>new Promise((resolv, reject) => {
             this.request.onsuccess = (_e: Event) => {                                
-                resolv([this.resultWrapper(this.request.result), f(this.request.result)] as const)                   
+                resolv([this.wrap(), f(this.request.result)] as const)                   
             }
             this.request.onerror = (e:Event) => {
                 reject(e)
@@ -343,34 +351,10 @@ export class TypedIDBRequest<ResultType> {
         }), identity)
     }
 
-    cont3<T,E,B>(conv:(result:ResultType)=>B, f: (r: B) => TypedIDBRequest<T>):TE.TaskEither<E, [B, TypedIDBRequest<T>]> {
-        return TE.tryCatch<E, [B, TypedIDBRequest<T>]>(()=>new Promise((resolv, reject) => {
+    cont5<T,E>(f: (r: WrapperType) => TypedIDBRequest<T>):TE.TaskEither<E, [WrapperType, TypedIDBRequest<T>]> {
+        return TE.tryCatch<E, [WrapperType, TypedIDBRequest<T>]>(()=>new Promise((resolv, reject) => {
             this.request.onsuccess = (_e: Event) => {  
-                const b:B = conv(this.resultWrapper(this.request.result))
-                resolv([b, f(b)] as const)                   
-            }
-            this.request.onerror = (e:Event) => {
-                reject(e)
-            }
-        }), identity as ()=>E)
-    }
-    cont4<B>(fn: ()=>TypedIDBRequest<B>) {
-        console.log("CONT4")    
-        return TE.tryCatch<[Event,string], [TE.TaskEither<[Event,string],B>, typeof this]>(()=>new Promise((resolv, reject) => {
-            this.request.addEventListener("success", (_ev:Event)=>{
-                console.log("in EVENT callback")        
-                const req = fn()                       
-                resolv([req.result, this] as const) 
-            })    
-            this.request.onerror = (e:Event) => {
-                reject(e)
-            }
-        }), identity as ()=>any)
-    }
-    cont5<T,E>(f: (r: ResultType) => TypedIDBRequest<T>):TE.TaskEither<E, [ResultType, TypedIDBRequest<T>]> {
-        return TE.tryCatch<E, [ResultType, TypedIDBRequest<T>]>(()=>new Promise((resolv, reject) => {
-            this.request.onsuccess = (_e: Event) => {  
-                const b = this.resultWrapper(this.request.result)
+                const b = this.wrap()
                 resolv([b, f(b)] as const)                   
             }
             this.request.onerror = (e:Event) => {
@@ -381,10 +365,12 @@ export class TypedIDBRequest<ResultType> {
     get result() {
         return pipe(
             this.request.readyState === "done" ? TE.right(this.request) : pipe(OC.taskify(this.request, OC.defaultSet), TE.map((_)=>this.request)),
-            TE.map((req)=>this.resultWrapper(req.result))
+            TE.map((_req)=>this.wrap())
         )
     }    
 }
+
+
 
 class TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
 
@@ -409,6 +395,7 @@ class TypedIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         this.db.close()
     }    
 }
+
 
 class TypedIDBTransaction<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey, StoreNameList> { 
 
@@ -437,7 +424,7 @@ class TypedIDBObjectStoreReadOnly<T, _KP, StoreKeyValue, _IndexKeyValue, _OutOfL
     ) {}
     
     get(keyValue:StoreKeyValue[StoreName & keyof StoreKeyValue] & IDBValidKey) {        
-        return new TypedIDBRequest<T[StoreName]>(this.store.get(keyValue), identity as any)
+        return new TypedIDBRequest<T[StoreName]>(this.store.get(keyValue))
     }
 }
 
@@ -453,7 +440,8 @@ class TypedIDBObjectStore<T, _KP, StoreKeyValue, _IndexKeyValue, OutOfLineKey, S
     add(value:T[StoreName]): TypedIDBRequest<StoreKeyValue[StoreName & keyof StoreKeyValue]>    
     add(value:T[StoreName], key:StoreName extends keyof OutOfLineKey ? OutOfLineKey[StoreName] extends true ? IDBValidKey : never : never): TypedIDBRequest<StoreKeyValue[StoreName & keyof StoreKeyValue]>
     add(value:T[StoreName], key:any=undefined) {                
-        return new TypedIDBRequest((key === undefined) ? this.store.add(value) : this.store.add(value, key), identity)
+        // return new TypedIDBRequest((key === undefined) ? this.store.add(value) : this.store.add(value, key), identity)
+        return new TypedIDBRequest((key === undefined) ? this.store.add(value) : this.store.add(value, key))
     }
 
     addArray(data:T[StoreName][]) {
@@ -561,23 +549,6 @@ class TIDBDatabase<T, KP, StoreKeyValue, IndexKeyValue, OutOfLineKey> {
         this.database.close()
     }    
 }
-
-export const TypedIDBRequestChain = <S, R, E, A, B, S2>(conv:(a:S)=>B, nextReq: (b: B, r: R) => TypedIDBRequest<S2>) => (
-    ma: SRTE.StateReaderTaskEither<TypedIDBRequest<S>, R, E, A>
-): SRTE.StateReaderTaskEither<TypedIDBRequest<S2>, R, E, B> => (s1) => (r) =>
-    pipe(
-        ma(s1 as any)(r),        
-        TE.chain(([_a, req]) => req.cont3(conv, (b:B)=>nextReq(b, r)))
-    )
-
-
-export const TypedIDBRequestChain2 = <S, R, E, A, B>(req: (a: A, r: R) => TypedIDBRequest<B>) => (
-    ma: SRTE.StateReaderTaskEither<TypedIDBRequest<S>, R, E, A>
-): SRTE.StateReaderTaskEither<TypedIDBRequest<S>, R, unknown, TE.TaskEither<[Event, string], B>> => (s1) => (r) =>
-    pipe(
-        ma(s1)(r),        
-        TE.chainW(([a, _s2]) => s1.cont4(()=>req(a, r)))
-    )
 
 export const TypedIDBRequestChain3 = <S, R, E, A, S2>(nextReq: (b: S, r: R) => TypedIDBRequest<S2>) => (
     ma: SRTE.StateReaderTaskEither<TypedIDBRequest<S>, R, E, A>
